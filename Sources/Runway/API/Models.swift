@@ -321,7 +321,7 @@ public struct WorkflowRun: Codable, Sendable, Hashable, Identifiable {
         updatedAt: Date? = nil,
         runStartedAt: Date? = nil,
         actor: GitHubActor? = nil,
-        triggeringActor: Actor? = nil,
+        triggeringActor: GitHubActor? = nil,
         repository: String = "",
         jobs: [Job] = []
     ) {

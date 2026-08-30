@@ -176,8 +176,13 @@ public final class NotchPanelController {
                 context.timingFunction = CAMediaTimingFunction(name: .easeOut)
                 panel.animator().alphaValue = 0
             } completionHandler: { [weak self] in
-                guard let self, !self.isShown else { return }
-                self.panel.orderOut(nil)
+                // Runs on the main thread, but the closure is nonisolated under
+                // Swift 6. Asserting that beats hopping through a Task, which
+                // would order the panel out a frame later than the fade ends.
+                MainActor.assumeIsolated {
+                    guard let self, !self.isShown else { return }
+                    self.panel.orderOut(nil)
+                }
             }
         }
     }
