@@ -32,6 +32,18 @@ public final class IslandModel {
     /// Ticks each second so elapsed times count up between polls.
     public private(set) var now = Date()
 
+    /// The monitor's change signature for `state`, computed once per update.
+    ///
+    /// The island animates content changes off this string, and
+    /// `MonitorState.signature` is not cheap: it walks every run, then every
+    /// job and every running step inside it, allocating and sorting arrays and
+    /// building strings as it goes. Read straight from `state` inside `body`,
+    /// SwiftUI rebuilt the whole thing on every pass — once a second at rest,
+    /// and again on every hover. `state` only ever changes in `apply(_:)`, and
+    /// the monitor has already computed this to decide whether to emit at all,
+    /// so the answer is kept rather than recomputed.
+    public private(set) var stateSignature = ""
+
     /// Drives the enter/exit morph.
     public var isOnScreen = false
 
@@ -62,8 +74,9 @@ public final class IslandModel {
 
     public func apply(_ newState: MonitorState) {
         state = newState
+        stateSignature = newState.signature
         Haptics.runsChanged(newState.runs)
-        recomputeRelevantRuns()
+        recomputeDerivedState()
         updateTicker()
         onDisplayChange?()
     }
@@ -72,14 +85,48 @@ public final class IslandModel {
 
     /// Runs the island cares about right now.
     ///
-    /// Stored, not computed. Nearly every other property below is derived from
-    /// it — `mood`, `headline`, `otherRuns`, `collapsedRuns`, `expandedDetail`,
-    /// `visibleActors`, `isVisible`, `settleProgress` — and SwiftUI reads those
-    /// several times per body pass, so a computed version ran this filter and
-    /// sort about ten times per redraw, once a second, for every visible run.
-    /// It depends only on `state` and `now`, and both change in exactly two
-    /// places: `apply(_:)` and the ticker. So it is recomputed there.
+    /// Stored, not computed. Everything the island draws is derived from it —
+    /// `mood`, `headline`, `collapsedRuns`, `expandedDetail`, `visibleActors`,
+    /// `isVisible`, `settleProgress` — and SwiftUI reads those several times
+    /// per body pass, so a computed version ran this filter and sort about ten
+    /// times per redraw, once a second, for every visible run. It depends only
+    /// on `state` and `now`, and both change in exactly two places:
+    /// `apply(_:)` and the ticker. So it is recomputed there, together with
+    /// every derivation that moves when it does.
     public private(set) var relevantRuns: [WorkflowRun] = []
+
+    /// Worst status across live runs only.
+    public private(set) var mood: IslandMood = .idle
+
+    /// The run the collapsed pill describes — the worst one, newest first.
+    public private(set) var headline: WorkflowRun?
+
+    /// The lines the collapsed island draws — one per live run.
+    public private(set) var collapsedRuns: [WorkflowRun] = []
+
+    /// Distinct people behind the runs on screen, in the order they appear.
+    ///
+    /// Only interesting when more than one person's work is visible, which is
+    /// exactly when the pill needs to say whose run it is showing.
+    public private(set) var visibleActors: [String] = []
+
+    /// Everything `relevantRuns` implies, in one pass.
+    ///
+    /// Stored for the same reason `relevantRuns` is, and the measurement that
+    /// justified it applies more strongly here: `showsMultipleActors` is read
+    /// once per drawn row, so a four-run pill asked for it five times per body
+    /// pass and each answer allocated a `Set` per run and then scanned an array
+    /// linearly. All four move with `relevantRuns` and nothing else, so they
+    /// are computed where it is.
+    private func recomputeDerivedState() {
+        recomputeRelevantRuns()
+
+        mood = worstMood()
+        headline = relevantRuns.first { Self.mood(for: $0.status) == mood }
+            ?? relevantRuns.first
+        collapsedRuns = Array(relevantRuns.prefix(collapsedRowLimit))
+        visibleActors = distinctLogins()
+    }
 
     private func recomputeRelevantRuns() {
         let live = state.runs.filter { run in
@@ -100,20 +147,32 @@ public final class IslandModel {
         }
     }
 
-    /// Every run the monitor knows about, newest first.
-    public var allRuns: [WorkflowRun] {
-        state.runs.sorted { ($0.startedAt ?? .distantPast) > ($1.startedAt ?? .distantPast) }
-    }
-
-    /// Worst status across live runs only.
-    public var mood: IslandMood {
+    private func worstMood() -> IslandMood {
         if state.error != nil { return .error }
         var worst = IslandMood.idle
         for run in relevantRuns {
-            let mood = Self.mood(for: run.status)
-            if mood.rank > worst.rank { worst = mood }
+            let runMood = Self.mood(for: run.status)
+            if runMood.rank > worst.rank { worst = runMood }
         }
         return worst
+    }
+
+    /// First-appearance order, de-duplicated through a set rather than a linear
+    /// scan of everything collected so far.
+    private func distinctLogins() -> [String] {
+        var seen = Set<String>()
+        var ordered: [String] = []
+        for run in relevantRuns {
+            for login in run.logins.sorted() where seen.insert(login).inserted {
+                ordered.append(login)
+            }
+        }
+        return ordered
+    }
+
+    /// Every run the monitor knows about, newest first.
+    public var allRuns: [WorkflowRun] {
+        state.runs.sorted { ($0.startedAt ?? .distantPast) > ($1.startedAt ?? .distantPast) }
     }
 
     static func mood(for status: RunStatus) -> IslandMood {
@@ -125,12 +184,6 @@ public final class IslandModel {
         }
     }
 
-    /// The run the collapsed pill describes — the worst one, newest first.
-    public var headline: WorkflowRun? {
-        let worst = mood
-        return relevantRuns.first { Self.mood(for: $0.status) == worst } ?? relevantRuns.first
-    }
-
     /// Everything the headline is *not* describing.
     public var otherRuns: [WorkflowRun] {
         guard let headline else { return [] }
@@ -140,11 +193,6 @@ public final class IslandModel {
     /// How many runs the collapsed island shows before it stops growing.
     private let collapsedRowLimit = 4
 
-    /// The lines the collapsed island draws — one per live run.
-    public var collapsedRuns: [WorkflowRun] {
-        Array(relevantRuns.prefix(collapsedRowLimit))
-    }
-
     /// Live runs that did not fit in the collapsed island.
     public var hiddenRunCount: Int {
         max(relevantRuns.count - collapsedRowLimit, 0)
@@ -153,20 +201,6 @@ public final class IslandModel {
     /// Runs to draw job detail for when expanded.
     public var expandedDetail: [WorkflowRun] {
         Array(relevantRuns.prefix(6))
-    }
-
-    /// Distinct people behind the runs on screen.
-    ///
-    /// Only interesting when more than one person's work is visible, which is
-    /// exactly when the pill needs to say whose run it is showing.
-    public var visibleActors: [String] {
-        var seen: [String] = []
-        for run in relevantRuns {
-            for login in run.logins.sorted() where !seen.contains(login) {
-                seen.append(login)
-            }
-        }
-        return seen
     }
 
     /// True when the island is showing more than one person's runs, so rows
@@ -214,7 +248,7 @@ public final class IslandModel {
                     }
                     guard let self else { return }
                     self.now = Date()
-                    self.recomputeRelevantRuns()
+                    self.recomputeDerivedState()
                     self.onDisplayChange?()
                     if self.relevantRuns.isEmpty {
                         self.stopTicker()

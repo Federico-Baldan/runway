@@ -71,7 +71,7 @@ struct IslandView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .allowsHitTesting(true)
-        .animation(Motion.content, value: model.state.signature)
+        .animation(Motion.content, value: model.stateSignature)
         .animation(Motion.expand, value: model.isExpanded)
     }
 
