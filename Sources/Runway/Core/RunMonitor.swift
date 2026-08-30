@@ -66,6 +66,8 @@ public actor RunMonitor {
         public var suspended: TimeInterval = 120
         /// Rate-limit headroom is nearly gone.
         public var conserving: TimeInterval = 60
+        /// Floor on the interval while the system is in Low Power Mode.
+        public var lowPower: TimeInterval = 30
         public var backoffBase: TimeInterval = 5
         public var backoffCeiling: TimeInterval = 300
 
@@ -81,6 +83,7 @@ public actor RunMonitor {
 
     private var failureCount = 0
     private var isSuspended = false
+    private var isLowPower = false
 
     private var continuations: [UUID: AsyncStream<MonitorState>.Continuation] = [:]
 
@@ -156,6 +159,11 @@ public actor RunMonitor {
         isSuspended = suspended
     }
 
+    /// Mirror the system's Low Power Mode into the cadence.
+    public func setLowPower(_ enabled: Bool) {
+        isLowPower = enabled
+    }
+
     /// Push the whole configuration in at once.
     ///
     /// Changing which repositories are watched invalidates the discovery cache;
@@ -221,7 +229,16 @@ public actor RunMonitor {
             await pollOnce()
             let delay = nextInterval()
             do {
-                try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                // The tolerance is what lets macOS coalesce this wakeup with
+                // timers other processes have already scheduled nearby, instead
+                // of bringing the CPU out of idle on its own. Apple's guidance
+                // is at least 10% of the interval for a repeating timer, and a
+                // poll that is half a second late is indistinguishable from one
+                // that is on time.
+                try await Task.sleep(
+                    for: .seconds(delay),
+                    tolerance: .seconds(delay * 0.1)
+                )
             } catch {
                 return // cancelled
             }
@@ -386,19 +403,54 @@ public actor RunMonitor {
         jobCache = jobCache.filter { identities.contains($0.key) }
     }
 
-    /// Poll cadence for the next tick.
-    private func nextInterval() -> TimeInterval {
+    /// Poll cadence for the next tick, as a pure function of its inputs.
+    ///
+    /// Split out from the actor so the precedence can be checked without a
+    /// client, a network or a running loop — it is the kind of decision where
+    /// the ordering matters and reading it is not enough to be sure:
+    ///
+    ///   * A retry backoff wins outright. Nothing else is worth considering
+    ///     while requests are failing.
+    ///   * A dark screen wins over everything else, because nobody can see the
+    ///     island; there is no cadence worth paying for.
+    ///   * Otherwise the interval is the normal active/idle choice raised to
+    ///     whichever *floor* applies — conserving when the rate-limit budget is
+    ///     nearly gone, Low Power Mode when the user has asked for less battery
+    ///     use. They are floors rather than replacements so that the slowest
+    ///     applicable constraint wins instead of the last one checked.
+    static func interval(
+        cadence: Cadence,
+        failureCount: Int,
+        isSuspended: Bool,
+        isLowPower: Bool,
+        isRateLimitTight: Bool,
+        hasActiveRun: Bool
+    ) -> TimeInterval {
         if failureCount > 0 {
             // 5, 10, 20, 40 … capped at 5 minutes.
             let factor = pow(2.0, Double(failureCount - 1))
             return min(cadence.backoffBase * factor, cadence.backoffCeiling)
         }
         if isSuspended { return cadence.suspended }
+
+        var interval = hasActiveRun ? cadence.active : cadence.idle
         // Back off before GitHub has to say no. Conditional requests usually
         // keep this from ever triggering, but a large watch list on a fresh
         // ETag cache can burn through the budget quickly.
-        if state.rateLimit.isTight { return cadence.conserving }
-        return state.hasActiveRun ? cadence.active : cadence.idle
+        if isRateLimitTight { interval = max(interval, cadence.conserving) }
+        if isLowPower { interval = max(interval, cadence.lowPower) }
+        return interval
+    }
+
+    private func nextInterval() -> TimeInterval {
+        Self.interval(
+            cadence: cadence,
+            failureCount: failureCount,
+            isSuspended: isSuspended,
+            isLowPower: isLowPower,
+            isRateLimitTight: state.rateLimit.isTight,
+            hasActiveRun: state.hasActiveRun
+        )
     }
 
     /// Dedupe gate: observers only wake when the signature actually moved.

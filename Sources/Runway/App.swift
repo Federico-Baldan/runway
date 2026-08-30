@@ -84,9 +84,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panelController: NotchPanelController?
 
     private var streamTask: Task<Void, Never>?
-    private var visibilityTask: Task<Void, Never>?
-    private var preferencesTask: Task<Void, Never>?
     private var demoTask: Task<Void, Never>?
+
+    /// Notification tokens for the observers that replaced the old poll loops.
+    private var lifecycleObservers: [NSObjectProtocol] = []
+    /// Last-seen preference values, so a change notification for an unrelated
+    /// key does not reconfigure the monitor.
+    private var lastScreenPreference: NotchGeometry.ScreenPreference?
+    private var lastConfigurationSignature: String?
 
     private let verifyOnly: Bool
     private let snapshotPath: String?
@@ -204,29 +209,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Push preference changes into the parts of the app that read them.
     private func observePreferences() {
-        var lastScreen = Preferences.shared.screenPreference
-        var lastSignature = configurationSignature()
+        lastScreenPreference = Preferences.shared.screenPreference
+        lastConfigurationSignature = configurationSignature()
 
         // Push the stored configuration in immediately, before the first poll.
         applyConfiguration()
 
-        preferencesTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-                guard let self else { return }
+        // Preferences change when the user changes them, not when time passes,
+        // so this listens instead of polling once a second forever. The
+        // signature diff is kept because `didChangeNotification` fires for every
+        // key in the domain, including ones the monitor does not care about.
+        lifecycleObservers.append(NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: UserDefaults.standard,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.applyChangedPreferences() }
+        })
+    }
 
-                let screen = Preferences.shared.screenPreference
-                if screen != lastScreen {
-                    lastScreen = screen
-                    self.panelController?.screenPreference = screen
-                }
+    /// Apply whichever preferences actually moved.
+    private func applyChangedPreferences() {
+        let screen = Preferences.shared.screenPreference
+        if screen != lastScreenPreference {
+            lastScreenPreference = screen
+            panelController?.screenPreference = screen
+        }
 
-                let signature = self.configurationSignature()
-                if signature != lastSignature {
-                    lastSignature = signature
-                    self.applyConfiguration()
-                }
-            }
+        let signature = configurationSignature()
+        if signature != lastConfigurationSignature {
+            lastConfigurationSignature = signature
+            applyConfiguration()
         }
     }
 
@@ -249,9 +262,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         streamTask?.cancel()
-        visibilityTask?.cancel()
-        preferencesTask?.cancel()
         demoTask?.cancel()
+        for observer in lifecycleObservers {
+            NotificationCenter.default.removeObserver(observer)
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+        }
+        lifecycleObservers.removeAll()
+        model.onDisplayChange = nil
         statusItem?.invalidate()
         panelController?.invalidate()
     }
@@ -274,14 +291,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Poll the model's derived visibility and keep the panel in sync.
+    /// Keep the panel in sync with the model's derived visibility.
+    ///
+    /// This used to be a 2 Hz poll that ran forever. Nothing about the island
+    /// changes on a clock the app does not already own: the panel's visibility
+    /// moves when a new monitor state arrives, when a finished run ages out of
+    /// its linger window (the model's 1 s ticker, which only runs while there
+    /// are runs to age), and when the hover expansion toggles. All three now
+    /// call in, so an idle Runway schedules no wakeups of its own at all.
     private func observeModelForLayout() {
-        visibilityTask = Task { [weak self] in
-            while !Task.isCancelled {
-                self?.syncPanel()
-                try? await Task.sleep(nanoseconds: 500_000_000)
-            }
-        }
+        model.onDisplayChange = { [weak self] in self?.syncPanel() }
+        panelController?.onExpansionChange = { [weak self] in self?.syncPanel() }
+        syncPanel()
     }
 
     private func syncPanel() {
@@ -291,25 +312,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Slow the poll cadence down when the machine is not being looked at.
+    ///
+    /// Two separate signals, because they are not the same event. The display
+    /// going dark means nobody can see the island; the machine going to sleep
+    /// means the loop should not be the thing that keeps waking it. A lid close
+    /// raises both, but a Mac told to sleep from the menu raises only the second
+    /// and an idle display timeout only the first.
     private func observeAppLifecycle() {
         let workspace = NSWorkspace.shared.notificationCenter
 
-        workspace.addObserver(
-            forName: NSWorkspace.screensDidSleepNotification,
-            object: nil, queue: .main
-        ) { [monitor] _ in
-            Task.detached { await monitor.setSuspended(true) }
+        for name in [NSWorkspace.screensDidSleepNotification, NSWorkspace.willSleepNotification] {
+            lifecycleObservers.append(workspace.addObserver(
+                forName: name, object: nil, queue: .main
+            ) { [monitor] _ in
+                Task.detached { await monitor.setSuspended(true) }
+            })
         }
 
-        workspace.addObserver(
-            forName: NSWorkspace.screensDidWakeNotification,
+        for name in [NSWorkspace.screensDidWakeNotification, NSWorkspace.didWakeNotification] {
+            lifecycleObservers.append(workspace.addObserver(
+                forName: name, object: nil, queue: .main
+            ) { [monitor] _ in
+                Task.detached {
+                    await monitor.setSuspended(false)
+                    await monitor.refreshNow()
+                }
+            })
+        }
+
+        // Low Power Mode is the user saying, in the system's own words, spend
+        // less battery. A CI watcher that keeps polling every 5 seconds through
+        // it is ignoring a direct instruction.
+        lifecycleObservers.append(NotificationCenter.default.addObserver(
+            forName: NSNotification.Name.NSProcessInfoPowerStateDidChange,
             object: nil, queue: .main
         ) { [monitor] _ in
-            Task.detached {
-                await monitor.setSuspended(false)
-                await monitor.refreshNow()
-            }
-        }
+            let lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
+            Task.detached { await monitor.setLowPower(lowPower) }
+        })
+
+        let lowPowerNow = ProcessInfo.processInfo.isLowPowerModeEnabled
+        Task.detached { [monitor] in await monitor.setLowPower(lowPowerNow) }
     }
 
     // MARK: - Actions

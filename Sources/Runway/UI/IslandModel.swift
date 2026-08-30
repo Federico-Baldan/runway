@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import SwiftUI
 
 /// What the pill is currently saying. Drives colour, glyph and visibility.
@@ -44,18 +45,43 @@ public final class IslandModel {
 
     private var tickTask: Task<Void, Never>?
 
+    /// Called whenever the set of runs the island draws changes — and therefore
+    /// whenever the panel may need to appear or disappear.
+    ///
+    /// Event-driven on purpose. The panel used to be kept in sync by a 2 Hz poll
+    /// that ran for the life of the process, which is a CPU wakeup every 500 ms
+    /// on a machine with nothing on screen and the display asleep. Apple's
+    /// energy guidance is no more than one wakeup per second for an idle app,
+    /// so the only two things that can move this — a new monitor state and the
+    /// 1 s elapsed ticker, which itself only runs while runs are visible — call
+    /// out here instead.
+    @ObservationIgnored
+    public var onDisplayChange: (@MainActor () -> Void)?
+
     public init() {}
 
     public func apply(_ newState: MonitorState) {
         state = newState
         Haptics.runsChanged(newState.runs)
+        recomputeRelevantRuns()
         updateTicker()
+        onDisplayChange?()
     }
 
     // MARK: - Derived UI state
 
     /// Runs the island cares about right now.
-    public var relevantRuns: [WorkflowRun] {
+    ///
+    /// Stored, not computed. Nearly every other property below is derived from
+    /// it — `mood`, `headline`, `otherRuns`, `collapsedRuns`, `expandedDetail`,
+    /// `visibleActors`, `isVisible`, `settleProgress` — and SwiftUI reads those
+    /// several times per body pass, so a computed version ran this filter and
+    /// sort about ten times per redraw, once a second, for every visible run.
+    /// It depends only on `state` and `now`, and both change in exactly two
+    /// places: `apply(_:)` and the ticker. So it is recomputed there.
+    public private(set) var relevantRuns: [WorkflowRun] = []
+
+    private func recomputeRelevantRuns() {
         let live = state.runs.filter { run in
             // Anything actually in flight, always.
             if run.isActive { return true }
@@ -65,7 +91,7 @@ public final class IslandModel {
 
             return run.status.isFailure ? age < failedLinger : age < finishedLinger
         }
-        return live.sorted { lhs, rhs in
+        relevantRuns = live.sorted { lhs, rhs in
             if lhs.isActive != rhs.isActive { return lhs.isActive }
             let lhsFailed = lhs.status.isFailure
             let rhsFailed = rhs.status.isFailure
@@ -176,9 +202,20 @@ public final class IslandModel {
             guard tickTask == nil else { return }
             tickTask = Task { [weak self] in
                 while !Task.isCancelled {
-                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                    // 100 ms of tolerance on a 1 s tick — Apple's guideline is at
+                    // least 10% for a repeating timer — lets macOS coalesce this
+                    // wakeup with others already scheduled nearby instead of
+                    // bringing the CPU out of idle on its own. A tenth of a second
+                    // is invisible on a counter that renders whole seconds.
+                    do {
+                        try await Task.sleep(for: .seconds(1), tolerance: .milliseconds(100))
+                    } catch {
+                        return // cancelled
+                    }
                     guard let self else { return }
                     self.now = Date()
+                    self.recomputeRelevantRuns()
+                    self.onDisplayChange?()
                     if self.relevantRuns.isEmpty {
                         self.stopTicker()
                         return
