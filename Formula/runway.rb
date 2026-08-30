@@ -62,8 +62,22 @@ class Runway < Formula
       # release install produce the same bundle.
       system "scripts/package.sh"
       prefix.install ".build/release/Runway.app"
-    else
+    elsif File.directory?("Runway.app")
       prefix.install "Runway.app"
+    else
+      # Runway.zip holds exactly one top-level entry — the bundle itself — and
+      # Homebrew chdirs into a lone top-level directory before `install` runs
+      # (AbstractDownloadStrategy#chdir). So the working directory IS
+      # Runway.app, and the plain `prefix.install "Runway.app"` this used to be
+      # looked for Runway.app/Runway.app and raised ENOENT on every release
+      # install. The branch above still covers an archive that grows a wrapper
+      # directory or a sibling file, which would stop brew descending.
+      #
+      # Move the bundle's CONTENTS, not the directory we are standing in: after
+      # `install` returns, brew calls prefix.install_metafiles(buildpath) to
+      # sweep up LICENSE and friends, and that walks the path with no existence
+      # check — moving buildpath away just trades one ENOENT for another.
+      (prefix/"Runway.app").install Dir["*"]
     end
 
     # A wrapper on PATH, so the CLI surface works without digging into the

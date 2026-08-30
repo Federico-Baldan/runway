@@ -53,6 +53,37 @@ jobs:
           test -f Runway.zip || { echo "Runway.zip missing"; exit 1; }
           echo "packaged app OK"
 
+      # `brew install` failed on 0.1.1 with `Errno::ENOENT - Runway.app`: the
+      # zip's only top-level entry is the bundle, so Homebrew chdirs INTO
+      # Runway.app before running the formula's `install`, and the formula was
+      # then looking for Runway.app/Runway.app. Nothing on the packaging side
+      # makes that visible, so assert the staged layout here rather than
+      # learning about it from a bug report.
+      - name: Verify the archive stages the way the formula expects
+        run: |
+          set -euo pipefail
+          STAGE="$(mktemp -d)"
+          ditto -x -k Runway.zip "$STAGE"
+          cd "$STAGE"
+
+          # AbstractDownloadStrategy#chdir, reproduced: brew descends into a
+          # lone top-level directory and leaves the formula standing in it.
+          shopt -s nullglob
+          entries=(*)
+          if [ "${#entries[@]}" -eq 1 ] && [ -d "${entries[0]}" ]; then
+            echo "brew will chdir into ${entries[0]}"
+            cd "${entries[0]}"
+          fi
+
+          # Whichever side of that the formula lands on, it has to find a
+          # bundle to install — these are exactly its two branches.
+          if [ -d Runway.app ]; then
+            test -f Runway.app/Contents/MacOS/Runway
+          else
+            test -f Contents/MacOS/Runway
+          fi
+          echo "staged layout OK (formula stages in $(pwd))"
+
       - name: Verify the bundle is well-formed
         run: |
           APP=.build/debug/Runway.app
@@ -70,12 +101,13 @@ jobs:
             || { echo "formula class name does not match the file name"; exit 1; }
 
   release:
-    # Tag builds publish a source tarball. The app is NOT shipped as a prebuilt
-    # binary: without a paid Apple Developer ID it could only be ad-hoc signed,
-    # and macOS refuses to open a *downloaded* ad-hoc app ("is damaged"). The
-    # Homebrew FORMULA compiles from this tarball on the user's own machine,
-    # which sidesteps Gatekeeper entirely. A cask could not do this — casks move
-    # prebuilt artefacts, they do not compile. See Formula/runway.rb.
+    # Tag builds publish the prebuilt app as Runway.zip. Without a paid Apple
+    # Developer ID it can only be ad-hoc signed, and macOS refuses to open a
+    # *downloaded* ad-hoc app ("is damaged") — but that wall is Gatekeeper
+    # reacting to com.apple.quarantine, which Homebrew stamps on casks and not
+    # on formulae. So the FORMULA unpacks this zip and the app opens on the
+    # first try, while the same file fetched from the releases page by hand
+    # hits the wall. A cask could not do this. See Formula/runway.rb.
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: macos-26
