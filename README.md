@@ -46,16 +46,25 @@ repo. Homebrew reads formulae from a tap's `Formula/` directory, and `brew tap`
 accepts an explicit URL for repositories not named `homebrew-*`. The `tap` line
 is a one-off; after that `brew upgrade` works normally.
 
-A **formula**, not a cask, and that is deliberate. A cask moves a prebuilt
-`.app` into place — but shipping a prebuilt app needs a paid Apple Developer ID,
-and without one macOS refuses to open a *downloaded* build at all ("Runway is
-damaged and can't be opened"). A formula compiles on your machine, and something
-you compiled yourself is never quarantined. So there is no `--cask`, and no
-binary to download.
+No Xcode required: the app is built by CI and Homebrew unpacks it.
 
-That needs a Swift 6 toolchain — Xcode 16 or newer.
+A **formula** shipping a prebuilt app, not a cask, and that is deliberate. The
+app is ad-hoc signed but not notarized, because notarizing needs a $99/year
+Apple Developer ID. Gatekeeper only asks about notarization for a file carrying
+`com.apple.quarantine` — and quarantine is applied by the *cask* installer, not
+by formulae. So a cask of this app would send you to System Settings → Privacy
+& Security → Open Anyway on first launch, and the formula does not.
 
-Or from source, without Homebrew:
+The same reasoning means you should **not** grab `Runway.zip` from the releases
+page and unzip it yourself: a browser download is quarantined and will hit that
+wall. Install through brew.
+
+The one thing a Developer ID would buy: an ad-hoc signature is pinned to the
+binary's cdhash, which changes every build, so macOS treats each upgrade as a
+new app and asks for keychain access again to reach your token. Compiling
+locally had the same problem — it is the price of not paying Apple $99.
+
+Or from source, without Homebrew (this is the path that needs Xcode 16+):
 
 ```bash
 git clone https://github.com/Federico-Baldan/runway
@@ -240,7 +249,7 @@ scripts/release.sh 0.2.0
 git push && git push origin v0.2.0
 ```
 
-That's the whole process. The tag builds on macOS, publishes a source tarball
+That's the whole process. The tag builds on macOS, publishes the packaged app
 with its `sha256`, then rewrites `version`, `url` and `sha256` in
 `Formula/runway.rb` and commits it back to `main`. Since this repo is the tap,
 `brew upgrade runway` picks it up immediately.

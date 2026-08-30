@@ -34,6 +34,25 @@ jobs:
       - name: Build app bundle
         run: make app
 
+      # The packaging path is what `brew install` consumes, so it is exercised
+      # on every push rather than discovered to be broken during a release.
+      - name: Package the shipping app
+        run: scripts/package.sh
+
+      - name: Verify the packaged app is universal and signed
+        run: |
+          set -euo pipefail
+          APP=.build/release/Runway.app
+          archs="$(lipo -archs "$APP/Contents/MacOS/Runway")"
+          echo "architectures: $archs"
+          case "$archs" in
+            *arm64*x86_64*|*x86_64*arm64*) ;;
+            *) echo "not a universal binary: $archs"; exit 1 ;;
+          esac
+          codesign --verify --deep --strict "$APP"
+          test -f Runway.zip || { echo "Runway.zip missing"; exit 1; }
+          echo "packaged app OK"
+
       - name: Verify the bundle is well-formed
         run: |
           APP=.build/debug/Runway.app
@@ -68,14 +87,19 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Create source tarball
+      - name: Build and package the app
         id: tarball
         run: |
+          set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
-          TARBALL="runway-$VERSION.tar.gz"
-          git archive --format=tar.gz --prefix="runway-$VERSION/" -o "$TARBALL" HEAD
-          SHA256="$(shasum -a 256 "$TARBALL" | cut -d' ' -f1)"
-          shasum -a 256 "$TARBALL" | tee sha256.txt
+          scripts/package.sh
+          # The formula's url points at THIS file, so the checksum is taken
+          # from the exact bytes a user will download. The previous version
+          # hashed a locally produced `git archive` while pointing the url at
+          # GitHub's auto-generated tag archive — two different files, so
+          # `brew install` failed on a checksum mismatch every time.
+          SHA256="$(shasum -a 256 Runway.zip | cut -d' ' -f1)"
+          shasum -a 256 Runway.zip | tee sha256.txt
           {
             echo "version=$VERSION"
             echo "sha256=$SHA256"
@@ -85,7 +109,7 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           files: |
-            runway-*.tar.gz
+            Runway.zip
             sha256.txt
           body: |
             Install with Homebrew:
@@ -97,11 +121,20 @@ jobs:
 
             Already tapped? `brew upgrade runway`.
 
-            Runway is a **formula**, not a cask: it compiles on your machine, so
-            macOS never quarantines it. That needs a Swift 6 toolchain — install
-            Xcode 16 or newer first.
+            No Xcode needed — the app is built here and Homebrew just unpacks
+            it.
 
-            Or build from source directly:
+            Runway is a **formula**, not a cask, and that is deliberate. A cask
+            would stamp `com.apple.quarantine` on the app, and Gatekeeper then
+            refuses to open anything that is not notarized — which needs a
+            $99/year Developer ID. Formulae do not quarantine, so the app opens
+            on the first try instead of sending you to System Settings.
+
+            The same reasoning is why you should **not** download `Runway.zip`
+            from this page and unzip it by hand: a browser download does get
+            quarantined, and will hit that wall. Install through brew.
+
+            Or build from source:
 
             ```bash
             git clone https://github.com/${{ github.repository }}
@@ -148,7 +181,10 @@ jobs:
           git fetch origin main
           git checkout -B main FETCH_HEAD
 
-          export NEW_URL="https://github.com/${REPO}/archive/refs/tags/v${VERSION}.tar.gz"
+          # The release ASSET, not GitHub's auto-generated tag archive. The
+          # sha256 above is computed from this exact file; the auto-generated
+          # archive is a different byte stream and would never match.
+          export NEW_URL="https://github.com/${REPO}/releases/download/v${VERSION}/Runway.zip"
 
           # Python rather than sed: `sed -i` needs a mandatory backup suffix on
           # BSD and must not have one on GNU, and this job has been moved

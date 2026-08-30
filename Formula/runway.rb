@@ -12,38 +12,59 @@
 # tag and commits the result back to main, using the workflow's own
 # GITHUB_TOKEN. Nothing to set up, and nothing to remember to do by hand.
 #
-# A formula, not a cask, and that distinction is the whole packaging strategy.
+# A formula shipping a PREBUILT app, which is an unusual combination and the
+# whole packaging strategy. The three options each fail differently:
 #
-# A cask downloads an artefact somebody else already built — a .app, .dmg or
-# .pkg — verifies it and moves it into place. It does not compile anything. But
-# shipping a prebuilt .app needs a paid Apple Developer ID: without one the app
-# can only be ad-hoc signed, and macOS refuses to open a *downloaded* ad-hoc app
-# at all ("Runway is damaged and can't be opened"). An app compiled on the
-# user's own machine never gets the quarantine attribute, so the problem simply
-# does not arise.
+#   * A cask downloads a prebuilt .app — but the cask installer stamps
+#     `com.apple.quarantine` on it, and Gatekeeper then refuses to open an app
+#     that is not notarized. Notarization needs a $99/year Developer ID. Apps
+#     in this position ship a cask anyway and tell the user to walk through
+#     System Settings → Privacy & Security → Open Anyway on first launch.
 #
-# Compiling from a source tarball is what a formula is for.
+#   * A formula that COMPILES from source, which is what this one used to do,
+#     sidesteps quarantine entirely — but makes a 10 GB Xcode install the price
+#     of admission for a menu-bar app, and then ad-hoc signs the result anyway,
+#     so it does not even buy a stable keychain identity in exchange.
+#
+#   * A formula that INSTALLS a prebuilt app, which is this one. Formulae do
+#     not apply quarantine, so the ad-hoc signature is never put in front of
+#     Gatekeeper and the app opens on the first try, with no Xcode anywhere.
+#
+# The catch, and it is a real one: an ad-hoc signature's designated requirement
+# is the binary's cdhash, which changes on every build. macOS therefore treats
+# each upgrade as a different app and re-prompts for keychain access to reach
+# the stored token. Compiling locally had exactly the same problem, so nothing
+# was lost here — but it is the one thing a Developer ID would fix.
+#
+# Downloading Runway.zip from the releases page by hand DOES quarantine it.
+# Install through brew.
 class Runway < Formula
   desc "Live GitHub Actions runs in the macOS notch and menu bar"
   homepage "https://github.com/Federico-Baldan/runway"
-  version "0.1.0"
-  url "https://github.com/Federico-Baldan/runway/archive/refs/tags/v0.1.0.tar.gz"
-  sha256 "fdf048537cf1f1d7e89f873e4842113f0b1bf0437a1017c53cf79019ac73779d"
+  version "0.1.1"
+  url "https://github.com/Federico-Baldan/runway/releases/download/v0.1.1/Runway.zip"
+  sha256 "0000000000000000000000000000000000000000000000000000000000000000"
   license "MIT"
-  head "https://github.com/Federico-Baldan/runway.git", branch: "main"
 
-  # Swift 6 and the macOS 14 SDK. Xcode 16 is the first release that ships a
-  # Swift 6 compiler, so an older toolchain fails at `swift build` rather than
-  # at install time.
-  depends_on xcode: ["16.0", :build]
   depends_on macos: :sonoma
 
-  def install
-    # Release configuration on purpose: `make app` defaults to debug for the
-    # development loop, which is not what should land in someone's Cellar.
-    system "make", "app", "CONFIG=release"
+  # Building from source is still supported, it is just no longer the default.
+  # `brew install --HEAD` takes this path and needs a Swift 6 compiler, which
+  # Xcode 16 is the first release to ship.
+  head do
+    url "https://github.com/Federico-Baldan/runway.git", branch: "main"
+    depends_on xcode: ["16.0", :build]
+  end
 
-    prefix.install ".build/release/Runway.app"
+  def install
+    if build.head?
+      # The same script the release workflow runs, so a HEAD install and a
+      # release install produce the same bundle.
+      system "scripts/package.sh"
+      prefix.install ".build/release/Runway.app"
+    else
+      prefix.install "Runway.app"
+    end
 
     # A wrapper on PATH, so the CLI surface works without digging into the
     # bundle: `runway store <token>`, `runway verify`, `runway --diagnose`.
@@ -71,7 +92,8 @@ class Runway < Formula
       workflow runs — it never reads your code.
 
       macOS will ask for keychain access once. That prompt is the point: the app
-      cannot read your token without your consent.
+      cannot read your token without your consent. Runway is ad-hoc signed
+      rather than notarized, so that prompt comes back after each upgrade.
 
       The CLI is on your PATH as `runway` — try `runway --diagnose` if the
       island never appears.

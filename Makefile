@@ -7,7 +7,7 @@ BUILDDIR := .build/$(CONFIG)
 APP      := $(BUILDDIR)/$(BINARY).app
 CONTENTS := $(APP)/Contents
 
-.PHONY: all build app run demo demo-notch clean verify verify-ui diagnose spikes spikes-offline spike-run signing-identity icon snapshot
+.PHONY: all build app package run demo demo-notch clean verify verify-ui diagnose spikes spikes-offline spike-run signing-identity icon snapshot
 
 all: app
 
@@ -43,6 +43,12 @@ app: build
 
 run: app
 	open "$(APP)"
+
+# The shipping bundle: universal, ad-hoc signed, zipped. This is what CI
+# publishes and what the Homebrew formula installs, so building it by hand is
+# the way to reproduce a release locally.
+package:
+	@scripts/package.sh
 
 # Scripted fake runs — no GitHub calls, no keychain, no real CI minutes.
 demo: build
