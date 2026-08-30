@@ -9,6 +9,13 @@
 # `brew upgrade runway` picks the new version up with no extra setup.
 set -euo pipefail
 
+# macOS only: PlistBuddy ships with the developer tools. That is fine — this is
+# a macOS project — but fail with a reason rather than "No such file".
+if [[ ! -x /usr/libexec/PlistBuddy ]]; then
+  echo "This script needs /usr/libexec/PlistBuddy, so it must run on macOS." >&2
+  exit 1
+fi
+
 VERSION="${1:-}"
 if [[ -z "${VERSION}" ]]; then
   echo "usage: scripts/release.sh <version>   e.g. 0.2.0" >&2
