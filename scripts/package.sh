@@ -28,12 +28,12 @@ X86_64_SCRATCH=".build-x86_64"
 # --arch x86_64`. The combined form shares a scratch directory between the two
 # slices, and the second pass can then link against the first one's artefacts.
 # Separate scratch paths make each build independent.
-echo "Building arm64…"
+echo "Building arm64..."
 swift build -c release --arch arm64 --scratch-path "$ARM64_SCRATCH"
-echo "Building x86_64…"
+echo "Building x86_64..."
 swift build -c release --arch x86_64 --scratch-path "$X86_64_SCRATCH"
 
-echo "Assembling $APP…"
+echo "Assembling ${APP}..."
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 lipo -create -output "$APP/Contents/MacOS/Runway" \
@@ -46,13 +46,13 @@ fi
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
 # --deep because the bundle is signed as a whole after the binary is swapped in.
-echo "Ad-hoc signing…"
+echo "Ad-hoc signing..."
 codesign --force --deep --sign - --identifier com.runway.app "$APP"
 codesign --verify --deep --strict "$APP"
 
 # ditto, not zip: a plain `zip` silently drops the extended attributes that the
 # code signature lives in, and the unpacked app then refuses to launch.
-echo "Packing $ZIP…"
+echo "Packing ${ZIP}..."
 rm -f "$ZIP"
 ditto -c -k --keepParent "$APP" "$ZIP"
 
