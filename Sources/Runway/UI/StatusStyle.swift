@@ -53,20 +53,29 @@ enum StatusStyle {
 }
 
 /// A spinner that only animates while a run is genuinely active.
+///
+/// `repeatForever` never settles, so for as long as this is on screen it holds
+/// the display link open at the panel's refresh rate. That is the right trade
+/// while something is genuinely building — but not for someone who has asked
+/// the system to stop animating things, so Reduce Motion drops it to a static
+/// glyph and takes the redraw cost to zero.
 struct ActivityGlyph: View {
     var color: Color
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var spinning = false
+
+    private var spin: Animation? {
+        guard !reduceMotion else { return nil }
+        return Animation.linear(duration: 2).repeatForever(autoreverses: false)
+    }
 
     var body: some View {
         Image(systemName: "circle.dotted")
             .font(.system(size: 11, weight: .bold))
             .foregroundStyle(color)
             .rotationEffect(.degrees(spinning ? 360 : 0))
-            .animation(
-                .linear(duration: 2).repeatForever(autoreverses: false),
-                value: spinning
-            )
-            .onAppear { spinning = true }
+            .animation(spin, value: spinning)
+            .onAppear { spinning = !reduceMotion }
     }
 }
 
@@ -166,6 +175,7 @@ struct StepDot: View {
     let name: String
     let job: String
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulse = false
 
     private var isRunning: Bool { status == .inProgress }
@@ -173,6 +183,11 @@ struct StepDot: View {
     private var isPending: Bool {
         status == .queued || status == .pending || status == .waiting
             || status == .requested || status == .actionRequired
+    }
+
+    private var pulseAnimation: Animation {
+        guard isRunning, !reduceMotion else { return .default }
+        return Animation.easeInOut(duration: 0.65).repeatForever(autoreverses: true)
     }
 
     var body: some View {
@@ -187,14 +202,9 @@ struct StepDot: View {
             .frame(width: 7, height: 7)
             .scaleEffect(isRunning && pulse ? 1.35 : 1.0)
             .opacity(isRunning && pulse ? 0.55 : 1.0)
-            .animation(
-                isRunning
-                    ? .easeInOut(duration: 0.65).repeatForever(autoreverses: true)
-                    : .default,
-                value: pulse
-            )
-            .onAppear { if isRunning { pulse = true } }
-            .onChange(of: isRunning) { _, running in pulse = running }
+            .animation(pulseAnimation, value: pulse)
+            .onAppear { pulse = isRunning && !reduceMotion }
+            .onChange(of: isRunning) { _, running in pulse = running && !reduceMotion }
             .help("\(job) › \(name): \(status.label)")
     }
 }

@@ -93,6 +93,7 @@ spikes-offline:
 	@echo "── status ──"    && $(MAKE) -s spike-run SPIKE=StatusFusionVerify   SRC="$(API)/Models.swift"
 	@echo "── actors ──"    && $(MAKE) -s spike-run SPIKE=ActorFilterVerify    SRC="$(API)/RunScope.swift $(API)/Models.swift"
 	@echo "── budget ──"    && $(MAKE) -s spike-run SPIKE=RateBudgetVerify     SRC="$(API)/ETagStore.swift $(API)/RunScope.swift $(API)/Models.swift"
+	@echo "── cadence ──"   && $(MAKE) -s spike-run SPIKE=CadenceVerify       SRC="Sources/Runway/Core/RunMonitor.swift $(API)/GitHubClient.swift $(API)/Models.swift $(API)/RunScope.swift $(API)/ETagStore.swift Sources/Runway/Auth/Keychain.swift"
 	@echo "── centering ──" && $(MAKE) -s spike-run SPIKE=CenteringVerify      SRC="Sources/Runway/UI/NotchMath.swift"
 	@echo "── notch ──"     && $(MAKE) -s spike-run SPIKE=NotchPlacementVerify SRC="Sources/Runway/UI/NotchMath.swift"
 

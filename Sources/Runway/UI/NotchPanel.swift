@@ -70,6 +70,13 @@ public final class NotchPanelController {
     private var currentPlacement: NotchGeometry.Placement?
     private var observers: [NSObjectProtocol] = []
 
+    /// Called after the hover expansion changes.
+    ///
+    /// Expansion pins the island on screen, so collapsing it can be the moment a
+    /// run that has already aged out should disappear. Nothing else would notice
+    /// that: the model's ticker stops once no run is relevant.
+    public var onExpansionChange: (() -> Void)?
+
     /// Intended visibility, which differs from `panel.isVisible` mid-fade.
     private var isShown = false
     private var fadeWork: DispatchWorkItem?
@@ -203,6 +210,7 @@ public final class NotchPanelController {
             model.isExpanded = expanded
         }
         updateInteractiveRegion()
+        onExpansionChange?()
     }
 
     /// Tell the hosting view how much of the canvas the island actually covers.
