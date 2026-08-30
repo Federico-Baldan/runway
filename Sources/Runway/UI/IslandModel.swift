@@ -64,9 +64,9 @@ public final class IslandModel {
     /// that ran for the life of the process, which is a CPU wakeup every 500 ms
     /// on a machine with nothing on screen and the display asleep. Apple's
     /// energy guidance is no more than one wakeup per second for an idle app,
-    /// so the only two things that can move this — a new monitor state and the
-    /// 1 s elapsed ticker, which itself only runs while runs are visible — call
-    /// out here instead.
+    /// so the only things that can move this — a new monitor state, the 1 s
+    /// elapsed ticker (which itself runs only while runs are visible and the
+    /// screen is awake), and the screen waking back up — call out here instead.
     @ObservationIgnored
     public var onDisplayChange: (@MainActor () -> Void)?
 
@@ -229,9 +229,33 @@ public final class IslandModel {
 
     // MARK: - Ticker
 
-    /// Only run a 1s timer when something is actually counting.
+    /// True while the display is asleep or the machine is suspended.
+    public private(set) var isSuspended = false
+
+    /// Stop the elapsed-time ticker while nobody can see what it counts.
+    ///
+    /// The ticker is for someone watching a counter move. Nobody is watching a
+    /// dark screen — and a failed run lingers for ten minutes, so without this
+    /// a single failure keeps taking a wakeup a second, and a SwiftUI redraw
+    /// with it, through a closed lid. The monitor already slows its polling on
+    /// exactly these two notifications; this is the other half of that.
+    public func setSuspended(_ suspended: Bool) {
+        guard suspended != isSuspended else { return }
+        isSuspended = suspended
+        if !suspended {
+            // Time passed while the ticker was stopped, so every linger window
+            // is stale — a run may have aged out entirely.
+            now = Date()
+            recomputeDerivedState()
+        }
+        updateTicker()
+        onDisplayChange?()
+    }
+
+    /// Only run a 1s timer when something is actually counting, and only while
+    /// there is someone to count for.
     private func updateTicker() {
-        let needsTicker = !relevantRuns.isEmpty
+        let needsTicker = !relevantRuns.isEmpty && !isSuspended
         if needsTicker {
             guard tickTask == nil else { return }
             tickTask = Task { [weak self] in

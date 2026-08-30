@@ -96,7 +96,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var demoTask: Task<Void, Never>?
 
     /// Notification tokens for the observers that replaced the old poll loops.
-    private var lifecycleObservers: [NSObjectProtocol] = []
+    ///
+    /// Kept per centre. A token only unregisters from the centre that issued
+    /// it, so one shared array meant every removal was half a no-op — harmless
+    /// today only because the app is exiting when it runs.
+    private var defaultCenterObservers: [NSObjectProtocol] = []
+    private var workspaceObservers: [NSObjectProtocol] = []
     /// Last-seen preference values, so a change notification for an unrelated
     /// key does not reconfigure the monitor.
     private var lastScreenPreference: NotchGeometry.ScreenPreference?
@@ -228,7 +233,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // so this listens instead of polling once a second forever. The
         // signature diff is kept because `didChangeNotification` fires for every
         // key in the domain, including ones the monitor does not care about.
-        lifecycleObservers.append(NotificationCenter.default.addObserver(
+        defaultCenterObservers.append(NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: UserDefaults.standard,
             queue: .main
@@ -272,11 +277,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         streamTask?.cancel()
         demoTask?.cancel()
-        for observer in lifecycleObservers {
+        for observer in defaultCenterObservers {
             NotificationCenter.default.removeObserver(observer)
+        }
+        for observer in workspaceObservers {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
         }
-        lifecycleObservers.removeAll()
+        defaultCenterObservers.removeAll()
+        workspaceObservers.removeAll()
         model.onDisplayChange = nil
         statusItem?.invalidate()
         panelController?.invalidate()
@@ -338,17 +346,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let workspace = NSWorkspace.shared.notificationCenter
 
         for name in [NSWorkspace.screensDidSleepNotification, NSWorkspace.willSleepNotification] {
-            lifecycleObservers.append(workspace.addObserver(
+            workspaceObservers.append(workspace.addObserver(
                 forName: name, object: nil, queue: .main
-            ) { [monitor] _ in
+            ) { [weak self, monitor] _ in
+                MainActor.assumeIsolated { self?.model.setSuspended(true) }
                 Task.detached { await monitor.setSuspended(true) }
             })
         }
 
         for name in [NSWorkspace.screensDidWakeNotification, NSWorkspace.didWakeNotification] {
-            lifecycleObservers.append(workspace.addObserver(
+            workspaceObservers.append(workspace.addObserver(
                 forName: name, object: nil, queue: .main
-            ) { [monitor] _ in
+            ) { [weak self, monitor] _ in
+                MainActor.assumeIsolated { self?.model.setSuspended(false) }
                 Task.detached {
                     await monitor.setSuspended(false)
                     await monitor.refreshNow()
@@ -359,7 +369,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Low Power Mode is the user saying, in the system's own words, spend
         // less battery. A CI watcher that keeps polling every 5 seconds through
         // it is ignoring a direct instruction.
-        lifecycleObservers.append(NotificationCenter.default.addObserver(
+        defaultCenterObservers.append(NotificationCenter.default.addObserver(
             forName: NSNotification.Name.NSProcessInfoPowerStateDidChange,
             object: nil, queue: .main
         ) { [monitor] _ in
