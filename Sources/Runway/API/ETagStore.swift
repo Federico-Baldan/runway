@@ -35,6 +35,13 @@ struct ETagStore: Sendable {
     /// watched does not pin its body in memory forever.
     private let maxAge: TimeInterval = 3_600
 
+    /// When the last sweep ran, so the store is not re-filtered on every
+    /// request — the poll can fire every five seconds.
+    private var lastPrune = Date()
+    /// How often the sweep is worth running: well under `maxAge`, so nothing
+    /// outlives its window by much, and far above the poll cadence.
+    private let pruneInterval: TimeInterval = 120
+
     init() {}
 
     /// The ETag to send as `If-None-Match`, if one is held.
@@ -70,7 +77,19 @@ struct ETagStore: Sendable {
 
     /// Evict entries nothing has revalidated for an hour.
     mutating func prune(now: Date = Date()) {
+        lastPrune = now
         entries = entries.filter { now.timeIntervalSince($0.value.refreshedAt) < maxAge }
+    }
+
+    /// Run `prune` if it is due, cheaply enough to sit on the request path.
+    ///
+    /// The sweep has to be driven by something. It is not on a timer, because a
+    /// suspended app makes no requests and so grows nothing; the only moment
+    /// the store can gain an entry is a request, which makes the request the
+    /// right place to check.
+    mutating func pruneIfDue(now: Date = Date()) {
+        guard now.timeIntervalSince(lastPrune) >= pruneInterval else { return }
+        prune(now: now)
     }
 
     /// How many URLs are cached. Surfaced by `--diagnose`.

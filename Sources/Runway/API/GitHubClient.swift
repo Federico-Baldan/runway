@@ -316,6 +316,12 @@ public actor GitHubClient {
             throw GitHubError.noToken
         }
 
+        // Every entry holds a full response body, and the `jobs:` key carries a
+        // run id — so the store mints a new entry per run and keeps it. Nothing
+        // was enforcing the hour-long window the store documents, which made it
+        // grow for as long as the app stayed open.
+        etags.pruneIfDue()
+
         guard var components = URLComponents(
             url: baseURL.appendingPathComponent(path),
             resolvingAgainstBaseURL: false
