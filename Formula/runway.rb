@@ -63,10 +63,12 @@ class Runway < Formula
         ln -sfn #{opt_prefix}/Runway.app ~/Applications/Runway.app
 
       Then click the menu bar icon, open Settings, and paste a fine-grained
-      GitHub token with:
+      GitHub token with just:
 
-        Actions   : Read
-        Contents  : Read
+        Actions : Read
+
+      and the repositories you want to watch selected. Runway only reads
+      workflow runs — it never reads your code.
 
       macOS will ask for keychain access once. That prompt is the point: the app
       cannot read your token without your consent.

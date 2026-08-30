@@ -73,8 +73,16 @@ access token with:
 | Permission | Level |
 |---|---|
 | Actions | Read |
-| Contents | Read |
-| Metadata | Read (granted automatically) |
+| Metadata | Read (mandatory, granted automatically) |
+
+**Actions: Read is the only box you tick.** Runway calls exactly two repository
+endpoints — `/actions/runs` and `/actions/runs/{run_id}/jobs` — and GitHub lists
+both under the Actions read permission. It never reads your code, so Contents is
+not needed. Everything it does is a GET; nothing needs write.
+
+What matters more than the permission is the **repository selection**: a
+fine-grained token only reaches the repositories you explicitly pick when
+creating it. Runway can watch nothing else, whatever the permissions say.
 
 There's a button in Settings that opens the token page. A classic token with
 the `repo` scope also works.

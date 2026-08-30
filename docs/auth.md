@@ -29,13 +29,28 @@ feature — the app cannot reach your credential without you agreeing.
 | Permission | Level | Why |
 |---|---|---|
 | Actions | Read | `/actions/runs` and `/actions/runs/{id}/jobs` |
-| Contents | Read | Required alongside Actions for repository access |
-| Metadata | Read | Granted automatically with any repository permission |
+| Metadata | Read | Mandatory on every fine-grained token; granted automatically |
 
-A classic token with `repo` also works, but grants far more than Runway needs.
+**Actions: Read, and nothing else.** GitHub's own
+[permissions reference](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens)
+lists both endpoints Runway calls under "Repository permissions for Actions",
+read access, with no additional permission required.
 
-Nothing Runway does is a write. If a token with write access is used, the extra
-permissions simply go unexercised.
+An earlier version of this document asked for `Contents: Read` as well. That was
+wrong — the claim came from advice about *triggering* workflows, which needs
+Contents because it writes a ref. Runway only reads. Asking for a permission a
+program does not exercise is not a harmless default: it is the difference
+between a token that can read your CI status and one that can read your source.
+
+The account-level calls Runway makes — `GET /user`, `/user/repos`, `/user/orgs`,
+`/users/{login}` — need no repository permission at all. `/user/repos` is listed
+under Metadata: Read, which every fine-grained token carries.
+
+A classic token with `repo` also works, but that scope grants read *and write*
+access to code, issues and settings on every repository you can reach. Prefer
+fine-grained.
+
+Nothing Runway does is a write. Every call is a GET.
 
 ## The keychain has two backends
 

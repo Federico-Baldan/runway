@@ -663,9 +663,10 @@ struct SettingsView: View {
                     .disabled(tokenField.isEmpty)
             }
 
-            Text("Create a **fine-grained** token with **Actions: Read** and **Contents: Read** "
-                 + "on the repositories you want to watch. It is stored in your macOS Keychain, "
-                 + "never on disk. A classic token with the `repo` scope also works.")
+            Text("Create a **fine-grained** token with **Actions: Read** — that one box — and "
+                 + "select the repositories you want to watch. Runway never reads your code, so "
+                 + "no other permission is needed. It is stored in your macOS Keychain, never on "
+                 + "disk. A classic token with the `repo` scope also works, but grants far more.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
