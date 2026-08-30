@@ -449,13 +449,36 @@ public actor GitHubClient {
 /// GitHub timestamps are ISO-8601 with a `Z` offset. A few endpoints add
 /// fractional seconds, so both shapes are accepted.
 enum GitHubDate {
-    static func parse(_ raw: String) -> Date? {
+    /// Built once and never reconfigured.
+    ///
+    /// `ISO8601DateFormatter` is expensive to construct — it builds an ICU
+    /// formatter underneath — and the decoder reaches `parse` once per date
+    /// field. Across twenty repositories of runs, then their jobs and steps,
+    /// that is thousands of calls per poll, each of which used to allocate a
+    /// formatter, fail a parse against it, mutate its options and parse again.
+    ///
+    /// `nonisolated(unsafe)` because `ISO8601DateFormatter` is not `Sendable`.
+    /// What makes sharing it safe is Foundation's own guarantee: a formatter is
+    /// safe to use from several threads as long as nothing reconfigures it
+    /// after construction, which is why the options are set inside the
+    /// initialiser and `formatOptions` is never touched again.
+    nonisolated(unsafe) private static let plain: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
-
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = formatter.date(from: raw) { return date }
-
         formatter.formatOptions = [.withInternetDateTime]
-        return formatter.date(from: raw)
+        return formatter
+    }()
+
+    nonisolated(unsafe) private static let fractional: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    /// Whole seconds first: that is the shape every run, job and step timestamp
+    /// arrives in, so the fractional form is the fallback rather than the first
+    /// guess. The old order failed a parse on nearly every date it was given.
+    static func parse(_ raw: String) -> Date? {
+        if let date = plain.date(from: raw) { return date }
+        return fractional.date(from: raw)
     }
 }
