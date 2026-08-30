@@ -118,8 +118,8 @@ minutes, since those are the only ones the island draws.
 
 ## Environment variables
 
-Anything set here beats the Settings window, and Settings shows the control as
-locked so it never claims a value the app isn't using.
+Handy for setting the filter per project or from a dotfile, without opening
+Settings.
 
 | Variable | Example |
 |---|---|
@@ -131,14 +131,26 @@ locked so it never claims a value the app isn't using.
 | `RUNWAY_ORGS` | `acme,acme-labs` |
 | `RUNWAY_HOST` | `https://github.example.com` (Enterprise Server) |
 
+**They are defaults, not locks.** A variable supplies the starting value for a
+setting you have never touched. The moment you change that setting in the app,
+your choice wins and the variable stops applying to it — every control stays
+editable. Settings shows a small `RUNWAY_ACTORS` chip next to any setting a
+variable seeded, and clicking it puts the setting back to the variable's value.
+
+An earlier version let the environment win permanently and greyed the controls
+out. That was the wrong call: a forgotten variable in a shell profile left you
+unable to change your own settings from inside the app, with no way to fix it
+from inside the app either.
+
 Setting `RUNWAY_ACTORS` without `RUNWAY_ACTOR_MODE` implies `list`, and
 `RUNWAY_REPOS` without `RUNWAY_REPO_SCOPE` implies `explicit` — otherwise the
-list would be stored and then quietly ignored.
+list would be stored and then quietly ignored. Both only apply while you have
+not chosen the mode yourself.
 
-**One caveat, and it's a real one:** an `LSUIElement` app launched from Finder or
-as a login item does *not* inherit your shell environment. These apply when you
-start Runway from a terminal (`make run`) or from a launch agent that sets them.
-For everyday use, Settings is the durable path.
+One practical note: an `LSUIElement` app launched from Finder or as a login item
+does not inherit your shell environment, so these take effect when Runway starts
+from a terminal (`make run`) or a launch agent. Since they only seed first-run
+defaults, that matters much less than it would if they were overrides.
 
 ## Other settings
 

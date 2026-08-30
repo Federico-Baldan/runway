@@ -68,7 +68,20 @@ enum RateBudgetVerify {
         assert("headroom is remaining/limit", abs(rate.headroom - 0.84) < 0.001)
         assert("84% headroom is not tight", !rate.isTight)
         assert("cache hit rate is saved/(saved+billed)", abs(rate.cacheHitRate - 0.9) < 0.001)
-        assert("reset is described in minutes", rate.resetDescription == "30m")
+        // resetDescription reads the clock, so 1800s has already become 1799 by
+        // the time it is formatted. Assert the format and the magnitude, not an
+        // exact string — an exact one is a test that fails for being correct.
+        let described = rate.resetDescription
+        assert("reset is described in whole minutes (got \(described))",
+               described.hasSuffix("m") && (Int(described.dropLast()) ?? 0) >= 29)
+
+        let soon = RateLimit(limit: 5000, remaining: 10, resetsAt: Date().addingTimeInterval(45))
+        assert("under a minute is described in seconds (got \(soon.resetDescription))",
+               soon.resetDescription.hasSuffix("s"))
+        let past = RateLimit(limit: 5000, remaining: 10, resetsAt: Date().addingTimeInterval(-5))
+        assert("an elapsed reset reads as now, not a negative", past.resetDescription == "now")
+        assert("no reset header at all is reported honestly",
+               RateLimit().resetDescription == "unknown")
 
         rate.remaining = 400
         assert("8% headroom IS tight, so the monitor should conserve", rate.isTight)

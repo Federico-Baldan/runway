@@ -107,14 +107,16 @@ enum Diagnostics {
         }
         print()
 
-        let set = EnvironmentOverride.all.filter { EnvironmentOverride.isSet($0) }
+        let set = EnvironmentDefault.all.filter { EnvironmentDefault.isSet($0) }
         if set.isEmpty {
-            print("environment overrides: none set")
+            print("environment defaults: none set")
         } else {
-            print("environment overrides ACTIVE (these beat the Settings window):")
+            print("environment defaults set (these seed a setting you have never")
+            print("changed; anything you pick in Settings wins from then on):")
             for name in set {
-                print("  \(name)=\(EnvironmentOverride.string(name) ?? "")")
+                print("  \(name)=\(EnvironmentDefault.string(name) ?? "")")
             }
+            print("  the values in force are the ones printed above, not necessarily these")
         }
         print()
     }

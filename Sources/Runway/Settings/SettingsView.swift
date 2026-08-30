@@ -131,7 +131,7 @@ struct SettingsView: View {
                 Text("Whose runs")
                     .font(.headline)
                 Spacer()
-                overrideBadge(EnvironmentOverride.actorMode)
+                overrideBadge(EnvironmentDefault.actorMode)
             }
 
             ForEach(ActorScope.allCases, id: \.self) { option in
@@ -158,7 +158,6 @@ struct SettingsView: View {
                 .contentShape(Rectangle())
                 .onTapGesture { preferences.actorScope = option }
             }
-            .disabled(EnvironmentOverride.isSet(EnvironmentOverride.actorMode))
 
             if preferences.actorScope == .list {
                 actorList
@@ -189,6 +188,7 @@ struct SettingsView: View {
                     .onSubmit { addActor() }
                 Button("Add") { addActor() }
                     .disabled(newActor.trimmingCharacters(in: .whitespaces).isEmpty)
+                overrideBadge(EnvironmentDefault.actors)
             }
             .controlSize(.small)
 
@@ -234,7 +234,6 @@ struct SettingsView: View {
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .disabled(EnvironmentOverride.isSet(EnvironmentOverride.actors))
     }
 
     private func actorToken(_ login: String) -> some View {
@@ -330,7 +329,7 @@ struct SettingsView: View {
                 Text("Which repositories")
                     .font(.headline)
                 Spacer()
-                overrideBadge(EnvironmentOverride.repoScope)
+                overrideBadge(EnvironmentDefault.repoScope)
             }
 
             Text("GitHub has no endpoint for \"every run I can see\", so Runway polls a "
@@ -361,7 +360,6 @@ struct SettingsView: View {
                     if option == .organizations { loadOrganizations() }
                 }
             }
-            .disabled(EnvironmentOverride.isSet(EnvironmentOverride.repoScope))
 
             if preferences.repoScope == .organizations {
                 organizationPicker
@@ -385,7 +383,6 @@ struct SettingsView: View {
                         Text("\(preferences.repoLimit) repositories")
                             .font(.system(size: 12, design: .monospaced))
                     }
-                    .disabled(EnvironmentOverride.isSet(EnvironmentOverride.repoLimit))
                 }
                 .font(.system(size: 12))
 
@@ -483,7 +480,6 @@ struct SettingsView: View {
             }
             .controlSize(.small)
         }
-        .disabled(EnvironmentOverride.isSet(EnvironmentOverride.repositories))
     }
 
     private func addRepository() {
@@ -655,7 +651,7 @@ struct SettingsView: View {
                     .frame(width: 46, alignment: .leading)
                 TextField("https://github.com", text: $preferences.host)
                     .textFieldStyle(.roundedBorder)
-                    .disabled(EnvironmentOverride.isSet(EnvironmentOverride.host))
+                overrideBadge(EnvironmentDefault.host)
             }
 
             HStack(spacing: 8) {
@@ -754,17 +750,32 @@ struct SettingsView: View {
         }
     }
 
-    /// A small "set by RUNWAY_X" tag, so a locked control explains itself.
+    /// A "$RUNWAY_X is set" hint with a one-click reset back to its value.
+    ///
+    /// Deliberately not a lock. The variable seeded this setting's default;
+    /// changing it here is allowed and wins from then on. Greying the control
+    /// out would mean a stray variable in a shell profile leaves you unable to
+    /// fix your own settings from inside the app.
     @ViewBuilder
     private func overrideBadge(_ name: String) -> some View {
-        if EnvironmentOverride.isSet(name) {
-            Text("set by \(name)")
-                .font(.system(size: 9, design: .monospaced))
-                .foregroundStyle(.orange)
+        if EnvironmentDefault.isSet(name) {
+            Button {
+                preferences.resetToEnvironment(name)
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 8))
+                    Text(name)
+                        .font(.system(size: 9, design: .monospaced))
+                }
+                .foregroundStyle(.secondary)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
-                .background(Capsule().fill(Color.orange.opacity(0.14)))
-                .help("This setting comes from the environment and cannot be changed here.")
+                .background(Capsule().fill(Color.secondary.opacity(0.12)))
+            }
+            .buttonStyle(.plain)
+            .help("\(name)=\(EnvironmentDefault.string(name) ?? "") is set in your environment "
+                  + "and seeded this setting. Click to go back to it.")
         }
     }
 }

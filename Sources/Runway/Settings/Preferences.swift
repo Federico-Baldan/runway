@@ -1,18 +1,26 @@
 import Foundation
 import SwiftUI
 
-/// Environment-variable overrides.
+/// Environment variables that seed the defaults.
 ///
-/// The settings that decide *whose* runs appear are also the ones people most
-/// want to set from outside the UI — per project, per checkout, from a dotfile.
-/// Anything set here wins over the stored preference and is shown as locked in
-/// Settings, so the UI never claims a value the app is not actually using.
+/// The settings that decide *whose* runs appear are the ones people most want
+/// to set from outside the UI — per project, per checkout, from a dotfile.
 ///
-/// One honest caveat, stated in the README too: a `LSUIElement` app launched
-/// from Finder or as a login item does **not** inherit your shell environment.
-/// These apply when Runway is started from a terminal (`make run`) or from a
-/// launch agent that sets them. The Settings window is the durable path.
-public enum EnvironmentOverride {
+/// They are **defaults, not locks.** A variable supplies the starting value for
+/// a setting the user has never touched; once it is changed in Settings, the
+/// stored choice wins and the variable stops applying to it. An earlier version
+/// let the environment override the UI permanently and greyed the controls out,
+/// which meant a stray variable in a shell profile left you unable to change
+/// your own settings from the app — with no way to fix it from the app either.
+///
+/// Settings still *says* when a variable is set, and offers a one-click reset
+/// back to its value, so nothing about the behaviour is hidden.
+///
+/// The practical caveat: an `LSUIElement` app launched from Finder or as a
+/// login item does not inherit your shell environment, so these apply when
+/// Runway is started from a terminal (`make run`) or a launch agent. Since they
+/// only seed first-run defaults, that matters much less than it used to.
+public enum EnvironmentDefault {
     public static let actorMode = "RUNWAY_ACTOR_MODE"
     public static let actors = "RUNWAY_ACTORS"
     public static let repoScope = "RUNWAY_REPO_SCOPE"
@@ -75,56 +83,87 @@ public final class Preferences {
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
 
-        self.host = EnvironmentOverride.string(EnvironmentOverride.host)
-            ?? defaults.string(forKey: Key.host)
+        // Each setting: the stored choice if the user has ever made one,
+        // otherwise the environment, otherwise the built-in default. Reading
+        // in that order is what makes the variables defaults rather than locks.
+        func stored(_ key: String) -> Bool { defaults.object(forKey: key) != nil }
+
+        self.host = defaults.string(forKey: Key.host)
+            ?? EnvironmentDefault.string(EnvironmentDefault.host)
             ?? "https://github.com"
 
         self.screenPreference = NotchGeometry.ScreenPreference(
             rawValue: defaults.string(forKey: Key.screenPreference) ?? ""
         ) ?? .primary
 
-        self.repoScope = EnvironmentOverride.string(EnvironmentOverride.repoScope)
-            .flatMap(RepoScope.init(rawValue:))
-            ?? RepoScope(rawValue: defaults.string(forKey: Key.repoScope) ?? "")
+        self.repoScope = RepoScope(rawValue: defaults.string(forKey: Key.repoScope) ?? "")
+            ?? EnvironmentDefault.string(EnvironmentDefault.repoScope).flatMap(RepoScope.init(rawValue:))
             ?? .recent
 
-        self.repoLimit = EnvironmentOverride.int(EnvironmentOverride.repoLimit)
-            ?? (defaults.object(forKey: Key.repoLimit) as? Int)
+        self.repoLimit = (defaults.object(forKey: Key.repoLimit) as? Int)
+            ?? EnvironmentDefault.int(EnvironmentDefault.repoLimit)
             ?? 20
 
         self.organizations = Set(
-            EnvironmentOverride.list(EnvironmentOverride.organizations)
-                ?? defaults.stringArray(forKey: Key.organizations)
+            defaults.stringArray(forKey: Key.organizations)
+                ?? EnvironmentDefault.list(EnvironmentDefault.organizations)
                 ?? []
         )
 
-        self.explicitRepositories = EnvironmentOverride.list(EnvironmentOverride.repositories)
-            ?? defaults.stringArray(forKey: Key.explicitRepositories)
+        self.explicitRepositories = defaults.stringArray(forKey: Key.explicitRepositories)
+            ?? EnvironmentDefault.list(EnvironmentDefault.repositories)
             ?? []
 
-        self.actorScope = EnvironmentOverride.string(EnvironmentOverride.actorMode)
-            .flatMap(ActorScope.init(rawValue:))
-            ?? ActorScope(rawValue: defaults.string(forKey: Key.actorScope) ?? "")
+        self.actorScope = ActorScope(rawValue: defaults.string(forKey: Key.actorScope) ?? "")
+            ?? EnvironmentDefault.string(EnvironmentDefault.actorMode).flatMap(ActorScope.init(rawValue:))
             ?? .me
 
-        self.watchedActors = EnvironmentOverride.list(EnvironmentOverride.actors)
-            ?? defaults.stringArray(forKey: Key.watchedActors)
+        self.watchedActors = defaults.stringArray(forKey: Key.watchedActors)
+            ?? EnvironmentDefault.list(EnvironmentDefault.actors)
             ?? [ActorFilter.selfToken]
 
         self.currentUser = defaults.string(forKey: Key.currentUser)
         self.haptics = defaults.object(forKey: Key.haptics) as? Bool ?? true
 
         // `RUNWAY_ACTORS` without `RUNWAY_ACTOR_MODE` reads as "watch these
-        // people" — honouring the list but leaving the mode on `.me` would
-        // silently ignore it.
-        if EnvironmentOverride.isSet(EnvironmentOverride.actors),
-           !EnvironmentOverride.isSet(EnvironmentOverride.actorMode) {
+        // people" — taking the list but leaving the mode on `.me` would ignore
+        // it. Only applies while the user has not chosen a mode themselves.
+        if EnvironmentDefault.isSet(EnvironmentDefault.actors),
+           !EnvironmentDefault.isSet(EnvironmentDefault.actorMode),
+           !stored(Key.actorScope) {
             self.actorScope = .list
         }
         // Same reasoning for an explicit repository list.
-        if EnvironmentOverride.isSet(EnvironmentOverride.repositories),
-           !EnvironmentOverride.isSet(EnvironmentOverride.repoScope) {
+        if EnvironmentDefault.isSet(EnvironmentDefault.repositories),
+           !EnvironmentDefault.isSet(EnvironmentDefault.repoScope),
+           !stored(Key.repoScope) {
             self.repoScope = .explicit
+        }
+    }
+
+    /// Put a setting back to what the environment says, for the reset button.
+    public func resetToEnvironment(_ name: String) {
+        switch name {
+        case EnvironmentDefault.actorMode:
+            if let value = EnvironmentDefault.string(name).flatMap(ActorScope.init(rawValue:)) {
+                actorScope = value
+            }
+        case EnvironmentDefault.actors:
+            if let value = EnvironmentDefault.list(name) { watchedActors = value }
+        case EnvironmentDefault.repoScope:
+            if let value = EnvironmentDefault.string(name).flatMap(RepoScope.init(rawValue:)) {
+                repoScope = value
+            }
+        case EnvironmentDefault.repositories:
+            if let value = EnvironmentDefault.list(name) { explicitRepositories = value }
+        case EnvironmentDefault.repoLimit:
+            if let value = EnvironmentDefault.int(name) { repoLimit = value }
+        case EnvironmentDefault.organizations:
+            if let value = EnvironmentDefault.list(name) { organizations = Set(value) }
+        case EnvironmentDefault.host:
+            if let value = EnvironmentDefault.string(name) { host = value }
+        default:
+            break
         }
     }
 
