@@ -4,6 +4,9 @@ import SwiftUI
 /// Application entry point.
 @main
 enum RunwayApp {
+    /// The delegate, held for the life of the process — see `launchUI`.
+    @MainActor private static var retainedDelegate: AppDelegate?
+
     @MainActor
     static func main() {
         setvbuf(stdout, nil, _IOLBF, 0)
@@ -69,6 +72,12 @@ enum RunwayApp {
             snapshotFailure: snapshotFailure,
             snapshotNotch: snapshotNotch
         )
+        // `NSApplication.delegate` is a *weak* reference, which leaves this
+        // local as the only strong one — and ARC is free to release a local
+        // straight after its last use, which is the assignment below. A release
+        // build is entitled to deallocate the delegate before `run()` ever
+        // calls it, and Homebrew installs release builds. Hold it explicitly.
+        retainedDelegate = delegate
         app.delegate = delegate
         app.run()
     }
