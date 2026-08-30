@@ -30,7 +30,11 @@ enum UpdateCheck {
     }
 
     /// Check at most once a day, in the background, failing silently.
-    static func checkIfDue() {
+    ///
+    /// The completion fires on both paths — after the network call, and
+    /// immediately when the daily check is not due — so the caller never has to
+    /// poll to find out whether an update turned up.
+    static func checkIfDue(completion: (@MainActor (String?) -> Void)? = nil) {
         let defaults = UserDefaults.standard
         let last = defaults.object(forKey: lastCheckKey) as? Date ?? .distantPast
         guard Date().timeIntervalSince(last) > 86_400 else {
@@ -38,10 +42,11 @@ enum UpdateCheck {
             if let seen = defaults.string(forKey: latestSeenKey), isNewer(seen, than: currentVersion) {
                 availableVersion = seen
             }
+            completion?(availableVersion)
             return
         }
         defaults.set(Date(), forKey: lastCheckKey)
-        check()
+        check(completion: completion)
     }
 
     /// Force a check now, ignoring the daily interval.

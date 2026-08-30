@@ -10,7 +10,6 @@ public final class StatusItemController {
     private let onRefresh: () -> Void
     private let onQuit: () -> Void
 
-    private var pollTask: Task<Void, Never>?
     private var lastMood: IslandMood?
     private var lastCount: Int = -1
     private var lastUpdate: String?
@@ -29,8 +28,12 @@ public final class StatusItemController {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         configureButton()
         rebuildMenu()
-        startObserving()
-        UpdateCheck.checkIfDue()
+        // The only two things that change this item are the model — pushed in by
+        // the app delegate through `refresh()` — and the once-a-day update check,
+        // which now calls back rather than being polled for. It used to be a 1 Hz
+        // loop that ran for the life of the process and rebuilt nothing on almost
+        // every tick.
+        UpdateCheck.checkIfDue { [weak self] _ in self?.refresh() }
     }
 
     private func configureButton() {
@@ -195,16 +198,8 @@ public final class StatusItemController {
     // MARK: - State
 
     /// Keep the icon and menu in step with the model.
-    private func startObserving() {
-        pollTask = Task { [weak self] in
-            while !Task.isCancelled {
-                self?.sync()
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-            }
-        }
-    }
-
-    private func sync() {
+    /// Redraw the item if anything it shows has actually moved.
+    public func refresh() {
         let mood = model.mood
         let count = model.relevantRuns.count
         let update = UpdateCheck.availableVersion
@@ -222,8 +217,6 @@ public final class StatusItemController {
     }
 
     public func invalidate() {
-        pollTask?.cancel()
-        pollTask = nil
         NSStatusBar.system.removeStatusItem(statusItem)
     }
 }

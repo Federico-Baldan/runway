@@ -300,12 +300,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// are runs to age), and when the hover expansion toggles. All three now
     /// call in, so an idle Runway schedules no wakeups of its own at all.
     private func observeModelForLayout() {
-        model.onDisplayChange = { [weak self] in self?.syncPanel() }
-        panelController?.onExpansionChange = { [weak self] in self?.syncPanel() }
-        syncPanel()
+        model.onDisplayChange = { [weak self] in self?.syncUI() }
+        panelController?.onExpansionChange = { [weak self] in self?.syncUI() }
+        syncUI()
     }
 
-    private func syncPanel() {
+    /// Push the model's current shape into both surfaces that draw it.
+    ///
+    /// Both used to keep their own poll loop — the panel at 2 Hz, the status
+    /// item at 1 Hz — for state that only ever changes here. Each does its own
+    /// cheap no-change check, so calling them on every model event is less work
+    /// than either loop was doing while idle.
+    private func syncUI() {
+        statusItem?.refresh()
         guard let controller = panelController else { return }
         controller.refreshInteractiveRegion()
         controller.setVisible(model.isVisible)
