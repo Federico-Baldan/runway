@@ -1,0 +1,24 @@
+.DS_Store
+*.xcuserstate
+xcuserdata/
+DerivedData/
+build/
+*.xcworkspace/xcuserdata/
+.swiftpm/
+
+# never commit credentials
+*.token
+secrets.*
+.env
+
+# SwiftPM
+.build/
+
+# built app bundle
+*.app/
+
+# generated icon staging dir
+AppIcon.iconset/
+
+# fablize story state
+.fablize/

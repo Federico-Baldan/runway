@@ -1,0 +1,455 @@
+import Foundation
+
+/// Errors surfaced to the UI. Never carries the token.
+public enum GitHubError: Error, LocalizedError, Sendable, Equatable {
+    case noToken
+    case unauthorized
+    case forbidden(String)
+    case notFound(String)
+    case rateLimited(retryAfter: TimeInterval?)
+    case serverError(status: Int)
+    case network(String)
+    case decoding(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .noToken:
+            return "No GitHub token. Add a fine-grained token with Actions: Read in Settings."
+        case .unauthorized:
+            return "Token rejected by GitHub. Check that it is valid and not expired."
+        case .forbidden(let detail):
+            return detail.isEmpty
+                ? "GitHub refused the request. The token may be missing the Actions: Read permission."
+                : "GitHub refused the request: \(detail)"
+        case .notFound(let path):
+            return "Not found: \(path). The repository may be private to your token."
+        case .rateLimited(let retryAfter):
+            if let retryAfter {
+                return "Rate limited by GitHub. Retrying in \(Int(retryAfter))s."
+            }
+            return "Rate limited by GitHub. Backing off."
+        case .serverError(let status):
+            return "GitHub returned HTTP \(status)."
+        case .network(let message):
+            return "Network error: \(message)"
+        case .decoding(let message):
+            return "Could not read GitHub's response: \(message)"
+        }
+    }
+
+    /// Transient failures that deserve exponential backoff rather than a hard stop.
+    public var isRetryable: Bool {
+        switch self {
+        case .rateLimited, .serverError, .network:
+            return true
+        case .noToken, .unauthorized, .forbidden, .notFound, .decoding:
+            return false
+        }
+    }
+}
+
+/// A response that may have been served from the conditional cache.
+public struct Conditional<Value: Sendable>: Sendable {
+    public let value: Value
+    /// True when GitHub answered `304 Not Modified` and this cost no rate limit.
+    public let notModified: Bool
+
+    public init(value: Value, notModified: Bool) {
+        self.value = value
+        self.notModified = notModified
+    }
+}
+
+/// Talks to GitHub's REST API over URLSession. No `gh`, no subprocess.
+///
+/// REST rather than GraphQL, which is the opposite of the GitLab original. The
+/// reason is `checkSuites`: GitHub's GraphQL exposes Actions only through the
+/// check-suite graph, which does not carry `run_attempt`, needs a nested
+/// connection per repository anyway, and costs more rate-limit points than the
+/// equivalent REST calls. REST also gives ETags per endpoint, which is what
+/// makes the poll affordable at all — see `ETagStore`.
+public actor GitHubClient {
+    /// The REST API version this client is written against. Pinning it means a
+    /// future breaking change lands as a deliberate bump rather than a mystery
+    /// decoding failure one morning.
+    public static let apiVersion = "2026-03-10"
+
+    /// Public GitHub. Enterprise Server installs use `https://HOST/api/v3`.
+    public static let defaultBaseURL = URL(string: "https://api.github.com")!
+
+    private let baseURL: URL
+    private let session: URLSession
+    private let tokenProvider: @Sendable () -> String?
+
+    private var etags = ETagStore()
+    private var rateLimit = RateLimit()
+
+    private let decoder: JSONDecoder = {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let raw = try decoder.singleValueContainer().decode(String.self)
+            if let date = GitHubDate.parse(raw) { return date }
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: decoder.codingPath,
+                      debugDescription: "Unrecognized date format: \(raw)")
+            )
+        }
+        return decoder
+    }()
+
+    public init(
+        baseURL: URL = GitHubClient.defaultBaseURL,
+        session: URLSession = .shared,
+        tokenProvider: @escaping @Sendable () -> String? = { TokenCache.shared.token() }
+    ) {
+        self.baseURL = baseURL
+        self.session = session
+        self.tokenProvider = tokenProvider
+    }
+
+    /// Build an API base URL from a host string in Settings.
+    ///
+    /// `github.com` is special-cased: its API lives on `api.github.com`, while
+    /// every Enterprise Server install serves it from `/api/v3` on the same
+    /// host. Getting this wrong produces a 404 on the HTML site rather than an
+    /// obvious error, so it is handled in one place.
+    public static func baseURL(for host: String) -> URL {
+        var trimmed = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return defaultBaseURL }
+        if !trimmed.contains("://") { trimmed = "https://" + trimmed }
+        while trimmed.hasSuffix("/") { trimmed.removeLast() }
+
+        guard let url = URL(string: trimmed), let hostName = url.host else {
+            return defaultBaseURL
+        }
+        if hostName == "github.com" || hostName == "www.github.com" || hostName == "api.github.com" {
+            return defaultBaseURL
+        }
+        if trimmed.hasSuffix("/api/v3") { return URL(string: trimmed) ?? defaultBaseURL }
+        return URL(string: trimmed + "/api/v3") ?? defaultBaseURL
+    }
+
+    /// The web origin matching this API base, for building browser links.
+    public static func webOrigin(for host: String) -> String {
+        let base = baseURL(for: host)
+        guard let hostName = base.host else { return "https://github.com" }
+        if hostName == "api.github.com" { return "https://github.com" }
+        return "https://" + hostName
+    }
+
+    // MARK: - Rate limit
+
+    public func currentRateLimit() -> RateLimit { rateLimit }
+
+    /// Forget every cached ETag. Must run on token change: ETags are per-token.
+    public func invalidateCache() {
+        etags.invalidate()
+    }
+
+    // MARK: - Account
+
+    /// Cheap auth probe. Also how `@me` gets resolved to a real login.
+    public func fetchAuthenticatedUser() async throws -> AuthenticatedUser {
+        try await get(path: "/user", cacheKey: "user").value
+    }
+
+    /// Organizations the account belongs to, for the organization picker.
+    public func fetchOrganizations() async throws -> [Organization] {
+        try await get(path: "/user/orgs", query: [.init(name: "per_page", value: "100")],
+                      cacheKey: "orgs").value
+    }
+
+    /// Confirm a login typed into the actor list actually exists.
+    public func fetchUser(login: String) async throws -> GitHubActor {
+        let escaped = login.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? login
+        return try await get(path: "/users/\(escaped)", cacheKey: "user:\(login)").value
+    }
+
+    // MARK: - Repositories
+
+    /// Repositories to poll, resolved from the configured scope.
+    ///
+    /// `sort=pushed` is the whole trick behind `.recent`: GitHub orders by last
+    /// push server-side, so the repositories you are actually working in are on
+    /// page one and the long tail never gets fetched.
+    public func fetchRepositories(
+        scope: RepoScope,
+        limit: Int,
+        organizations: Set<String>,
+        explicit: [String]
+    ) async throws -> [Repository] {
+        switch scope {
+        case .explicit:
+            // Nothing to discover — the user said exactly which ones.
+            return explicit
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { $0.contains("/") }
+                .map { Repository(fullName: $0) }
+
+        case .recent:
+            return try await userRepositories(
+                affiliation: "owner,collaborator,organization_member",
+                limit: limit
+            )
+
+        case .mine:
+            return try await userRepositories(affiliation: "owner", limit: limit)
+
+        case .organizations:
+            guard !organizations.isEmpty else { return [] }
+            var result: [Repository] = []
+            // Serially, per GitHub's own guidance: concurrent requests from one
+            // account trip the secondary rate limit long before the primary one.
+            for org in organizations.sorted() {
+                let escaped = org.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? org
+                let page: [Repository] = try await get(
+                    path: "/orgs/\(escaped)/repos",
+                    query: [
+                        .init(name: "sort", value: "pushed"),
+                        .init(name: "direction", value: "desc"),
+                        .init(name: "per_page", value: "\(min(limit, 100))"),
+                    ],
+                    cacheKey: "orgrepos:\(org)"
+                ).value
+                result.append(contentsOf: page)
+            }
+            return Array(sortedByPush(result).prefix(limit))
+        }
+    }
+
+    private func userRepositories(affiliation: String, limit: Int) async throws -> [Repository] {
+        let repos: [Repository] = try await get(
+            path: "/user/repos",
+            query: [
+                .init(name: "sort", value: "pushed"),
+                .init(name: "direction", value: "desc"),
+                .init(name: "affiliation", value: affiliation),
+                .init(name: "per_page", value: "\(min(max(limit, 1), 100))"),
+            ],
+            cacheKey: "repos:\(affiliation)"
+        ).value
+        return Array(sortedByPush(repos).prefix(limit))
+    }
+
+    /// Drop archived repositories and order by push recency.
+    ///
+    /// Archived repos cannot run Actions but still come back from `/user/repos`,
+    /// so leaving them in would spend a request per cycle guaranteed to return
+    /// nothing.
+    private func sortedByPush(_ repos: [Repository]) -> [Repository] {
+        repos
+            .filter { !$0.isArchived }
+            .sorted { ($0.pushedAt ?? .distantPast) > ($1.pushedAt ?? .distantPast) }
+    }
+
+    // MARK: - Workflow runs
+
+    /// Recent workflow runs for one repository.
+    ///
+    /// `actorLogin` maps to the `?actor=` query parameter. Exposed because it
+    /// is part of the endpoint, but **`RunMonitor` never passes it**: the
+    /// parameter matches whoever created the push, not the run's `actor`, so it
+    /// cannot see a run somebody else pushed and you re-ran. `ActorFilter`
+    /// carries the measurements behind that decision.
+    public func fetchRuns(
+        repository: String,
+        actorLogin: String? = nil,
+        perPage: Int = 10
+    ) async throws -> Conditional<WorkflowRunsPayload> {
+        var query: [URLQueryItem] = [
+            .init(name: "per_page", value: "\(max(min(perPage, 100), 1))"),
+            // Pull requests carry a large `pull_requests` array the island never
+            // reads. Excluding it makes the payload — and so the decode — smaller.
+            .init(name: "exclude_pull_requests", value: "true"),
+        ]
+        if let actorLogin, !actorLogin.isEmpty {
+            query.append(.init(name: "actor", value: actorLogin))
+        }
+
+        let key = "runs:\(repository):\(actorLogin ?? "*"):\(perPage)"
+        let response: Conditional<WorkflowRunsPayload> = try await get(
+            path: "/repos/\(repository)/actions/runs",
+            query: query,
+            cacheKey: key
+        )
+
+        // The per-repo endpoint does not repeat the repository on each run.
+        let stamped = response.value.workflowRuns.map { run -> WorkflowRun in
+            var copy = run
+            copy.repository = repository
+            return copy
+        }
+        return Conditional(
+            value: WorkflowRunsPayload(totalCount: response.value.totalCount, workflowRuns: stamped),
+            notModified: response.notModified
+        )
+    }
+
+    /// Jobs (and their steps) for one run.
+    ///
+    /// A second request per run, so the monitor only asks for runs worth
+    /// drawing detail for — see `RunMonitor.shouldFetchJobs`. `filter=latest`
+    /// returns the current attempt rather than every historical one.
+    public func fetchJobs(repository: String, runID: Int) async throws -> Conditional<[Job]> {
+        let response: Conditional<JobsPayload> = try await get(
+            path: "/repos/\(repository)/actions/runs/\(runID)/jobs",
+            query: [
+                .init(name: "filter", value: "latest"),
+                .init(name: "per_page", value: "50"),
+            ],
+            cacheKey: "jobs:\(repository):\(runID)"
+        )
+        return Conditional(value: response.value.jobs, notModified: response.notModified)
+    }
+
+    // MARK: - Transport
+
+    /// One conditional GET, decoded.
+    private func get<T: Decodable & Sendable>(
+        path: String,
+        query: [URLQueryItem] = [],
+        cacheKey: String
+    ) async throws -> Conditional<T> {
+        // Checked before anything else: an unauthenticated 304 *does* count
+        // against the rate limit, so a missing token must never reach the wire.
+        guard let token = tokenProvider(), !token.isEmpty else {
+            throw GitHubError.noToken
+        }
+
+        guard var components = URLComponents(
+            url: baseURL.appendingPathComponent(path),
+            resolvingAgainstBaseURL: false
+        ) else {
+            throw GitHubError.network("Could not build a URL for \(path).")
+        }
+        if !query.isEmpty { components.queryItems = query }
+        guard let url = components.url else {
+            throw GitHubError.network("Could not build a URL for \(path).")
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 20
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.setValue(Self.apiVersion, forHTTPHeaderField: "X-GitHub-Api-Version")
+        request.setValue("Runway", forHTTPHeaderField: "User-Agent")
+        // URLSession keeps its own HTTP cache, which would answer from disk and
+        // hide the 304 the rate-limit exemption depends on. ETags are handled
+        // here instead, so the URL cache must stay out of the way.
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        if let etag = etags.etag(for: cacheKey) {
+            request.setValue(etag, forHTTPHeaderField: "If-None-Match")
+        }
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw GitHubError.network(error.localizedDescription)
+        }
+
+        guard let http = response as? HTTPURLResponse else {
+            throw GitHubError.network("Non-HTTP response.")
+        }
+
+        absorbRateLimitHeaders(http, billed: http.statusCode != 304)
+
+        switch http.statusCode {
+        case 200:
+            etags.store(key: cacheKey, etag: http.value(forHTTPHeaderField: "ETag"), body: data)
+            return Conditional(value: try decode(T.self, from: data), notModified: false)
+
+        case 304:
+            // Free, but only if a body was cached. If it was evicted, drop the
+            // ETag so the next attempt is unconditional and repopulates it.
+            guard let cached = etags.body(for: cacheKey) else {
+                etags.store(key: cacheKey, etag: nil, body: Data())
+                throw GitHubError.network("Cache miss on a 304 for \(path).")
+            }
+            etags.touch(key: cacheKey)
+            return Conditional(value: try decode(T.self, from: cached), notModified: true)
+
+        case 401:
+            throw GitHubError.unauthorized
+
+        case 403, 429:
+            // 403 is overloaded: it is both "you lack the permission" and, with
+            // the rate-limit headers set, "you ran out of budget". The headers
+            // are what tell them apart.
+            let remaining = Int(http.value(forHTTPHeaderField: "x-ratelimit-remaining") ?? "")
+            let retryAfter = TimeInterval(http.value(forHTTPHeaderField: "retry-after") ?? "")
+            if http.statusCode == 429 || remaining == 0 || retryAfter != nil {
+                throw GitHubError.rateLimited(retryAfter: retryAfter ?? secondsUntilReset(http))
+            }
+            throw GitHubError.forbidden(messageFromBody(data))
+
+        case 404:
+            throw GitHubError.notFound(path)
+
+        case 500...599:
+            throw GitHubError.serverError(status: http.statusCode)
+
+        default:
+            throw GitHubError.serverError(status: http.statusCode)
+        }
+    }
+
+    private func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
+        do {
+            return try decoder.decode(T.self, from: data)
+        } catch {
+            throw GitHubError.decoding(error.localizedDescription)
+        }
+    }
+
+    /// Pull the `x-ratelimit-*` headers off a response.
+    private func absorbRateLimitHeaders(_ http: HTTPURLResponse, billed: Bool) {
+        if let limit = Int(http.value(forHTTPHeaderField: "x-ratelimit-limit") ?? "") {
+            rateLimit.limit = limit
+        }
+        if let remaining = Int(http.value(forHTTPHeaderField: "x-ratelimit-remaining") ?? "") {
+            rateLimit.remaining = remaining
+        }
+        if let reset = Double(http.value(forHTTPHeaderField: "x-ratelimit-reset") ?? "") {
+            rateLimit.resetsAt = Date(timeIntervalSince1970: reset)
+        }
+        if billed {
+            rateLimit.billedRequests += 1
+        } else {
+            rateLimit.savedRequests += 1
+        }
+    }
+
+    private func secondsUntilReset(_ http: HTTPURLResponse) -> TimeInterval? {
+        guard let reset = Double(http.value(forHTTPHeaderField: "x-ratelimit-reset") ?? "") else {
+            return nil
+        }
+        let seconds = Date(timeIntervalSince1970: reset).timeIntervalSinceNow
+        return seconds > 0 ? seconds : nil
+    }
+
+    /// GitHub puts a human-readable reason in the body of a 403.
+    private func messageFromBody(_ data: Data) -> String {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let message = object["message"] as? String else { return "" }
+        return message
+    }
+}
+
+// MARK: - Date parsing
+
+/// GitHub timestamps are ISO-8601 with a `Z` offset. A few endpoints add
+/// fractional seconds, so both shapes are accepted.
+enum GitHubDate {
+    static func parse(_ raw: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: raw) { return date }
+
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: raw)
+    }
+}

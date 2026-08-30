@@ -1,0 +1,210 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    # Pinned rather than macos-latest: `latest` moved from macOS 15 to macOS 26
+    # in July 2026, and a toolchain that changes under you turns an unrelated
+    # PR red. Bump this deliberately.
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Show toolchain
+        run: |
+          swift --version
+          xcodebuild -version
+
+      - name: Build
+        run: swift build
+
+      # Only the offline spikes: the rest need a token and a live account,
+      # which CI has neither of. These are pure arithmetic and logic — the
+      # status fusion, the actor filter, the rate budget, and the two geometry
+      # bugs that are easy to reintroduce.
+      - name: Offline regression suite
+        run: make spikes-offline
+
+      - name: Build app bundle
+        run: make app
+
+      - name: Verify the bundle is well-formed
+        run: |
+          APP=.build/debug/Runway.app
+          test -f "$APP/Contents/MacOS/Runway" || { echo "missing binary"; exit 1; }
+          test -f "$APP/Contents/Info.plist"   || { echo "missing Info.plist"; exit 1; }
+          plutil -lint "$APP/Contents/Info.plist"
+          echo "bundle OK"
+
+      # The formula is Ruby that nothing else in CI would ever execute, so a
+      # typo in it would only surface when a user runs `brew install`.
+      - name: Check the Homebrew formula parses
+        run: |
+          ruby -c packaging/homebrew/runway.rb
+          grep -q "^class Runway < Formula" packaging/homebrew/runway.rb \
+            || { echo "formula class name does not match the file name"; exit 1; }
+
+  release:
+    # Tag builds publish a source tarball. The app is NOT shipped as a prebuilt
+    # binary: without a paid Apple Developer ID it could only be ad-hoc signed,
+    # and macOS refuses to open a *downloaded* ad-hoc app ("is damaged"). The
+    # Homebrew FORMULA compiles from this tarball on the user's own machine,
+    # which sidesteps Gatekeeper entirely. A cask could not do this — casks move
+    # prebuilt artefacts, they do not compile. See packaging/homebrew/runway.rb.
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: macos-26
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.tarball.outputs.version }}
+      sha256: ${{ steps.tarball.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Create source tarball
+        id: tarball
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          TARBALL="runway-$VERSION.tar.gz"
+          git archive --format=tar.gz --prefix="runway-$VERSION/" -o "$TARBALL" HEAD
+          SHA256="$(shasum -a 256 "$TARBALL" | cut -d' ' -f1)"
+          shasum -a 256 "$TARBALL" | tee sha256.txt
+          {
+            echo "version=$VERSION"
+            echo "sha256=$SHA256"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            runway-*.tar.gz
+            sha256.txt
+          body: |
+            Install with Homebrew:
+
+            ```bash
+            brew install ${{ github.repository_owner }}/tap/runway
+            ```
+
+            Runway is a **formula**, not a cask: it compiles on your machine, so
+            macOS never quarantines it. That needs a Swift 6 toolchain — install
+            Xcode 16 or newer first.
+
+            Or build from source directly:
+
+            ```bash
+            git clone https://github.com/${{ github.repository }}
+            cd runway
+            make signing-identity   # once, stops repeated keychain prompts
+            make app
+            open .build/debug/Runway.app
+            ```
+
+            `sha256`: `${{ steps.tarball.outputs.sha256 }}`
+
+  tap:
+    # Push the new version straight into the tap. A direct commit rather than a
+    # pull request, because a PR waiting to be merged is not automation.
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      # The `secrets` context is not usable in a job-level `if`, so the skip is
+      # decided here instead. Missing the secret must not fail the release: not
+      # everyone who forks this will have a tap.
+      - name: Is a tap configured?
+        id: check
+        env:
+          TAP_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: |
+          if [ -z "$TAP_TOKEN" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::TAP_GITHUB_TOKEN is not set — skipping the Homebrew tap update."
+            echo "::notice::To enable it: create ${{ github.repository_owner }}/homebrew-tap, then add a PAT with Contents:Write on it as the TAP_GITHUB_TOKEN secret."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out this repository
+        if: steps.check.outputs.configured == 'true'
+        uses: actions/checkout@v7
+        with:
+          path: source
+
+      - name: Check out the tap
+        if: steps.check.outputs.configured == 'true'
+        uses: actions/checkout@v7
+        with:
+          # `brew install owner/tap/runway` resolves to owner/homebrew-tap.
+          repository: ${{ github.repository_owner }}/homebrew-tap
+          # GITHUB_TOKEN is scoped to THIS repository only, so writing to the
+          # tap needs a PAT (or a GitHub App token) with Contents: Write on it.
+          token: ${{ secrets.TAP_GITHUB_TOKEN }}
+          path: tap
+
+      - name: Update the formula
+        if: steps.check.outputs.configured == 'true'
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+          SHA256: ${{ needs.release.outputs.sha256 }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p tap/Formula
+
+          # First release into an empty tap: seed it from the template in this
+          # repo, so the tap never has to be hand-written.
+          if [ ! -f tap/Formula/runway.rb ]; then
+            cp source/packaging/homebrew/runway.rb tap/Formula/runway.rb
+            echo "seeded tap/Formula/runway.rb from the template"
+          fi
+
+          export NEW_URL="https://github.com/${REPO}/archive/refs/tags/v${VERSION}.tar.gz"
+
+          python3 - <<'PY'
+          import os, re, sys
+
+          path = "tap/Formula/runway.rb"
+          version, sha, url = os.environ["VERSION"], os.environ["SHA256"], os.environ["NEW_URL"]
+          src = open(path).read()
+
+          src, n_url = re.subn(r'^(\s*url\s+)".*"', lambda m: f'{m.group(1)}"{url}"', src, count=1, flags=re.M)
+          src, n_sha = re.subn(r'^(\s*sha256\s+)".*"', lambda m: f'{m.group(1)}"{sha}"', src, count=1, flags=re.M)
+
+          # Fail loudly rather than pushing a formula that still points at the
+          # previous release.
+          if n_url != 1 or n_sha != 1:
+              sys.exit(f"could not rewrite the formula (url={n_url}, sha256={n_sha})")
+
+          open(path, "w").write(src)
+          print(f"formula -> v{version}\n  url    {url}\n  sha256 {sha}")
+          PY
+
+          grep -E '^\s*(url|sha256)' tap/Formula/runway.rb
+
+      - name: Commit and push
+        if: steps.check.outputs.configured == 'true'
+        working-directory: tap
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet; then
+            echo "tap already at v${VERSION} — nothing to push"
+            exit 0
+          fi
+          git add Formula/runway.rb
+          git commit -m "runway ${VERSION}"
+          git push
+          echo "pushed runway ${VERSION} to the tap"
