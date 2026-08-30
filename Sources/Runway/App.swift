@@ -298,13 +298,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let model = self.model
 
         streamTask = Task.detached {
+            // Subscribe before starting, so the first poll's result cannot land
+            // before there is anything listening for it.
             let stream = await monitor.stateStream()
-            let pump = Task.detached { await monitor.start() }
+            // `start()` spawns the loop and returns; it does not block, which
+            // is why the task that used to wrap it had always finished long
+            // before the `cancel()` that followed this loop.
+            await monitor.start()
 
             for await state in stream {
                 await MainActor.run { model.apply(state) }
             }
-            pump.cancel()
         }
     }
 

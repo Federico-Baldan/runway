@@ -79,7 +79,6 @@ public final class NotchPanelController {
 
     /// Intended visibility, which differs from `panel.isVisible` mid-fade.
     private var isShown = false
-    private var fadeWork: DispatchWorkItem?
 
     public init(
         model: IslandModel,
@@ -150,8 +149,6 @@ public final class NotchPanelController {
     public func setVisible(_ visible: Bool) {
         guard visible != isShown else { return }
         isShown = visible
-
-        fadeWork?.cancel()
 
         if visible {
             model.isExpanded = false

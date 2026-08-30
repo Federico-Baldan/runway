@@ -121,8 +121,12 @@ public actor RunMonitor {
 
     // MARK: - Observation
 
+    /// Each element is a complete snapshot, so an older one is worthless the
+    /// moment a newer one exists. Buffering the newest single value keeps a
+    /// consumer that stalls — the main actor, mid-animation — from then working
+    /// through a queue of frames nobody will ever see.
     public func stateStream() -> AsyncStream<MonitorState> {
-        AsyncStream { continuation in
+        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let id = UUID()
             continuations[id] = continuation
             continuation.yield(state)
