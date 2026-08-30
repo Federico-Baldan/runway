@@ -312,7 +312,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// cheap no-change check, so calling them on every model event is less work
     /// than either loop was doing while idle.
     private func syncUI() {
-        statusItem?.refresh()
+        statusItem?.redraw()
         guard let controller = panelController else { return }
         controller.refreshInteractiveRegion()
         controller.setVisible(model.isVisible)

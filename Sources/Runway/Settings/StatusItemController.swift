@@ -33,7 +33,7 @@ public final class StatusItemController {
         // which now calls back rather than being polled for. It used to be a 1 Hz
         // loop that ran for the life of the process and rebuilt nothing on almost
         // every tick.
-        UpdateCheck.checkIfDue { [weak self] _ in self?.refresh() }
+        UpdateCheck.checkIfDue { [weak self] _ in self?.redraw() }
     }
 
     private func configureButton() {
@@ -199,7 +199,11 @@ public final class StatusItemController {
 
     /// Keep the icon and menu in step with the model.
     /// Redraw the item if anything it shows has actually moved.
-    public func refresh() {
+    ///
+    /// Named `redraw` rather than `refresh` because `refresh()` is already the
+    /// @objc selector behind the "Refresh Now" menu item, which means something
+    /// else entirely: go ask GitHub again.
+    public func redraw() {
         let mood = model.mood
         let count = model.relevantRuns.count
         let update = UpdateCheck.availableVersion
