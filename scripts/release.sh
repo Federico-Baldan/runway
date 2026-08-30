@@ -4,8 +4,9 @@
 #   scripts/release.sh 0.2.0
 #
 # Pushing the tag triggers .github/workflows/build.yml, which builds on macOS,
-# publishes a source tarball with its sha256, and — if TAP_GITHUB_TOKEN is set —
-# rewrites the formula in <owner>/homebrew-tap so `brew upgrade` picks it up.
+# publishes a source tarball with its sha256, then rewrites Formula/runway.rb
+# in this repo and commits it to main. This repo is its own Homebrew tap, so
+# `brew upgrade runway` picks the new version up with no extra setup.
 set -euo pipefail
 
 VERSION="${1:-}"
@@ -26,11 +27,10 @@ fi
 echo "Setting version to ${VERSION}…"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${VERSION}" Resources/Info.plist
 
-# Keep the formula template honest, even though CI rewrites the tap's copy.
-sed -i '' -E "s|/archive/refs/tags/v[0-9]+\.[0-9]+\.[0-9]+\.tar\.gz|/archive/refs/tags/v${VERSION}.tar.gz|" \
-  packaging/homebrew/runway.rb
+# The formula's version/url/sha256 are rewritten by CI once the tarball exists
+# and its checksum is known, so nothing to do here.
 
-git add Resources/Info.plist packaging/homebrew/runway.rb
+git add Resources/Info.plist
 git commit -m "Runway ${VERSION}"
 git tag "v${VERSION}"
 

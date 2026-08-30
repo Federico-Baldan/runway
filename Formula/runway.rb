@@ -1,4 +1,16 @@
-# Homebrew FORMULA for Runway.
+# Homebrew formula for Runway.
+#
+# This repository IS the tap. There is no second `homebrew-tap` repo to create
+# and no token to configure: Homebrew reads formulae from a tap's `Formula/`
+# directory, and `brew tap` accepts an explicit URL for repositories that are
+# not named `homebrew-*`. So:
+#
+#     brew tap Federico-Baldan/runway https://github.com/Federico-Baldan/runway
+#     brew install Federico-Baldan/runway/runway
+#
+# The release workflow rewrites `version`, `url` and `sha256` below on every
+# tag and commits the result back to main, using the workflow's own
+# GITHUB_TOKEN. Nothing to set up, and nothing to remember to do by hand.
 #
 # A formula, not a cask, and that distinction is the whole packaging strategy.
 #
@@ -10,19 +22,11 @@
 # user's own machine never gets the quarantine attribute, so the problem simply
 # does not arise.
 #
-# Compiling from a source tarball is what a formula is for. Hence:
-#
-#     brew install <owner>/tap/runway        # correct
-#     brew install --cask <owner>/tap/runway # would be wrong, and would not build
-#
-# To publish:
-#   1. create a repo named `homebrew-tap` on GitHub
-#   2. put this file at Formula/runway.rb
-#   3. the `tap` job in .github/workflows/build.yml keeps version/url/sha256
-#      in sync on every tagged release
+# Compiling from a source tarball is what a formula is for.
 class Runway < Formula
   desc "Live GitHub Actions runs in the macOS notch and menu bar"
   homepage "https://github.com/Federico-Baldan/runway"
+  version "0.1.0"
   url "https://github.com/Federico-Baldan/runway/archive/refs/tags/v0.1.0.tar.gz"
   sha256 "REPLACE_WITH_SHA256_FROM_RELEASE"
   license "MIT"

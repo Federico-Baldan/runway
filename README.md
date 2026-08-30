@@ -37,8 +37,14 @@ has the measurements.
 ## Install
 
 ```bash
-brew install Federico-Baldan/tap/runway
+brew tap Federico-Baldan/runway https://github.com/Federico-Baldan/runway
+brew install Federico-Baldan/runway/runway
 ```
+
+This repository is its own Homebrew tap — there is no separate `homebrew-tap`
+repo. Homebrew reads formulae from a tap's `Formula/` directory, and `brew tap`
+accepts an explicit URL for repositories not named `homebrew-*`. The `tap` line
+is a one-off; after that `brew upgrade` works normally.
 
 A **formula**, not a cask, and that is deliberate. A cask moves a prebuilt
 `.app` into place — but shipping a prebuilt app needs a paid Apple Developer ID,
@@ -49,7 +55,7 @@ binary to download.
 
 That needs a Swift 6 toolchain — Xcode 16 or newer.
 
-Or from source:
+Or from source, without Homebrew:
 
 ```bash
 git clone https://github.com/Federico-Baldan/runway
@@ -226,20 +232,28 @@ scripts/release.sh 0.2.0
 git push && git push origin v0.2.0
 ```
 
-The tag builds on macOS, publishes a source tarball with its `sha256`, and then
-rewrites `Formula/runway.rb` in your tap so `brew upgrade` picks it up.
+That's the whole process. The tag builds on macOS, publishes a source tarball
+with its `sha256`, then rewrites `version`, `url` and `sha256` in
+`Formula/runway.rb` and commits it back to `main`. Since this repo is the tap,
+`brew upgrade runway` picks it up immediately.
 
-That last step needs setting up once:
+**Nothing to set up.** An earlier design pushed the formula to a separate
+`homebrew-tap` repository, which meant creating that repo, minting a token with
+`Contents: Write` on it, and storing it as a secret — because a workflow's own
+`GITHUB_TOKEN` is scoped to its own repository and cannot push elsewhere. Making
+the repo its own tap removes all three steps: `GITHUB_TOKEN` can write here.
 
-1. Create a repo called `homebrew-tap` under your account. (`brew install
-   owner/tap/runway` resolves to `owner/homebrew-tap`.)
-2. Create a token with **Contents: Write** on that repo — the workflow's own
-   `GITHUB_TOKEN` is scoped to this repository only and cannot push to another.
-3. Add it to this repository as a secret named `TAP_GITHUB_TOKEN`.
+Two details the bump job handles, both easy to get wrong:
 
-The tap job seeds `Formula/runway.rb` from `packaging/homebrew/runway.rb` on the
-first release, so there is nothing to hand-write. Without the secret it skips
-with a notice rather than failing the release.
+- A tag build checks out a **detached HEAD**, so it fetches `main` and commits
+  onto its tip. Committing in place would try to move `main` back to the tagged
+  commit.
+- It rewrites with Python, not `sed`. `sed -i` requires a backup suffix on BSD
+  and rejects one on GNU, so the same line breaks on whichever runner it wasn't
+  written for.
+
+If any of the three lines fails to match, the job exits non-zero rather than
+publishing a formula that still points at the previous release.
 
 ## Credit
 

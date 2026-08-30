@@ -46,8 +46,8 @@ jobs:
       # typo in it would only surface when a user runs `brew install`.
       - name: Check the Homebrew formula parses
         run: |
-          ruby -c packaging/homebrew/runway.rb
-          grep -q "^class Runway < Formula" packaging/homebrew/runway.rb \
+          ruby -c Formula/runway.rb
+          grep -q "^class Runway < Formula" Formula/runway.rb \
             || { echo "formula class name does not match the file name"; exit 1; }
 
   release:
@@ -56,7 +56,7 @@ jobs:
     # and macOS refuses to open a *downloaded* ad-hoc app ("is damaged"). The
     # Homebrew FORMULA compiles from this tarball on the user's own machine,
     # which sidesteps Gatekeeper entirely. A cask could not do this — casks move
-    # prebuilt artefacts, they do not compile. See packaging/homebrew/runway.rb.
+    # prebuilt artefacts, they do not compile. See Formula/runway.rb.
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: macos-26
@@ -91,8 +91,11 @@ jobs:
             Install with Homebrew:
 
             ```bash
-            brew install ${{ github.repository_owner }}/tap/runway
+            brew tap ${{ github.repository_owner }}/runway https://github.com/${{ github.repository }}
+            brew install ${{ github.repository }}/runway
             ```
+
+            Already tapped? `brew upgrade runway`.
 
             Runway is a **formula**, not a cask: it compiles on your machine, so
             macOS never quarantines it. That needs a Swift 6 toolchain — install
@@ -110,101 +113,79 @@ jobs:
 
             `sha256`: `${{ steps.tarball.outputs.sha256 }}`
 
-  tap:
-    # Push the new version straight into the tap. A direct commit rather than a
-    # pull request, because a PR waiting to be merged is not automation.
+  formula:
+    # Bump the formula in THIS repository, which is also the tap.
+    #
+    # No secret, no second repo, no setup: Homebrew reads formulae from a tap's
+    # Formula/ directory and `brew tap` takes an explicit URL for repos not
+    # named homebrew-*, so the source repo can serve as its own tap. The
+    # workflow's own GITHUB_TOKEN can write here, which the previous design —
+    # pushing to a separate homebrew-tap repo — specifically could not do.
+    #
+    # A push made with GITHUB_TOKEN does not start another workflow run, so this
+    # cannot loop back into itself.
     needs: release
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      # The `secrets` context is not usable in a job-level `if`, so the skip is
-      # decided here instead. Missing the secret must not fail the release: not
-      # everyone who forks this will have a tap.
-      - name: Is a tap configured?
-        id: check
-        env:
-          TAP_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
-        run: |
-          if [ -z "$TAP_TOKEN" ]; then
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::TAP_GITHUB_TOKEN is not set — skipping the Homebrew tap update."
-            echo "::notice::To enable it: create ${{ github.repository_owner }}/homebrew-tap, then add a PAT with Contents:Write on it as the TAP_GITHUB_TOKEN secret."
-          else
-            echo "configured=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Check out this repository
-        if: steps.check.outputs.configured == 'true'
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
-          path: source
+          # Need main's history, not just the tag: the commit goes on main.
+          fetch-depth: 0
 
-      - name: Check out the tap
-        if: steps.check.outputs.configured == 'true'
-        uses: actions/checkout@v7
-        with:
-          # `brew install owner/tap/runway` resolves to owner/homebrew-tap.
-          repository: ${{ github.repository_owner }}/homebrew-tap
-          # GITHUB_TOKEN is scoped to THIS repository only, so writing to the
-          # tap needs a PAT (or a GitHub App token) with Contents: Write on it.
-          token: ${{ secrets.TAP_GITHUB_TOKEN }}
-          path: tap
-
-      - name: Update the formula
-        if: steps.check.outputs.configured == 'true'
+      - name: Rewrite version, url and sha256
         env:
           VERSION: ${{ needs.release.outputs.version }}
           SHA256: ${{ needs.release.outputs.sha256 }}
-          OWNER: ${{ github.repository_owner }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          mkdir -p tap/Formula
 
-          # First release into an empty tap: seed it from the template in this
-          # repo, so the tap never has to be hand-written.
-          if [ ! -f tap/Formula/runway.rb ]; then
-            cp source/packaging/homebrew/runway.rb tap/Formula/runway.rb
-            echo "seeded tap/Formula/runway.rb from the template"
-          fi
+          # A tag build checks out a detached HEAD. Commit onto main's tip, or
+          # the push would try to move main backwards to the tagged commit.
+          git fetch origin main
+          git checkout -B main FETCH_HEAD
 
           export NEW_URL="https://github.com/${REPO}/archive/refs/tags/v${VERSION}.tar.gz"
 
+          # Python rather than sed: `sed -i` needs a mandatory backup suffix on
+          # BSD and must not have one on GNU, and this job has been moved
+          # between runners before.
           python3 - <<'PY'
           import os, re, sys
 
-          path = "tap/Formula/runway.rb"
+          path = "Formula/runway.rb"
           version, sha, url = os.environ["VERSION"], os.environ["SHA256"], os.environ["NEW_URL"]
           src = open(path).read()
 
-          src, n_url = re.subn(r'^(\s*url\s+)".*"', lambda m: f'{m.group(1)}"{url}"', src, count=1, flags=re.M)
-          src, n_sha = re.subn(r'^(\s*sha256\s+)".*"', lambda m: f'{m.group(1)}"{sha}"', src, count=1, flags=re.M)
+          src, n_ver = re.subn(r'^(\s*version\s+)".*"', lambda m: f'{m.group(1)}"{version}"', src, count=1, flags=re.M)
+          src, n_url = re.subn(r'^(\s*url\s+)".*"',     lambda m: f'{m.group(1)}"{url}"',     src, count=1, flags=re.M)
+          src, n_sha = re.subn(r'^(\s*sha256\s+)".*"',  lambda m: f'{m.group(1)}"{sha}"',      src, count=1, flags=re.M)
 
-          # Fail loudly rather than pushing a formula that still points at the
+          # Fail loudly rather than shipping a formula still pointing at the
           # previous release.
-          if n_url != 1 or n_sha != 1:
-              sys.exit(f"could not rewrite the formula (url={n_url}, sha256={n_sha})")
+          if (n_ver, n_url, n_sha) != (1, 1, 1):
+              sys.exit(f"could not rewrite the formula (version={n_ver}, url={n_url}, sha256={n_sha})")
 
           open(path, "w").write(src)
-          print(f"formula -> v{version}\n  url    {url}\n  sha256 {sha}")
+          print(f"formula -> v{version}")
           PY
 
-          grep -E '^\s*(url|sha256)' tap/Formula/runway.rb
+          grep -E '^\s*(version|url|sha256)' Formula/runway.rb
 
-      - name: Commit and push
-        if: steps.check.outputs.configured == 'true'
-        working-directory: tap
+      - name: Commit onto main
         env:
           VERSION: ${{ needs.release.outputs.version }}
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet; then
-            echo "tap already at v${VERSION} — nothing to push"
+          if git diff --quiet -- Formula/runway.rb; then
+            echo "formula already at v${VERSION} — nothing to commit"
             exit 0
           fi
-          git add Formula/runway.rb
-          git commit -m "runway ${VERSION}"
-          git push
-          echo "pushed runway ${VERSION} to the tap"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "formula: Runway ${VERSION}" -- Formula/runway.rb
+          git push origin main
+          echo "Formula/runway.rb is now v${VERSION} on main"
