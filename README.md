@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="design/brand/appicon-large.svg" alt="" width="96">
+</p>
+
 # Runway
 
 GitHub Actions runs, live in the macOS notch.
