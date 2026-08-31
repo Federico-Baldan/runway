@@ -13,6 +13,9 @@ public final class StatusItemController {
     private var lastMood: IslandMood?
     private var lastCount: Int = -1
     private var lastUpdate: String?
+    /// Approvals move without the mood or the run count moving — a run going
+    /// from "waiting on Alice" to "waiting on you" changes neither.
+    private var lastApprovals: Int = -1
 
     public init(
         model: IslandModel,
@@ -58,6 +61,9 @@ public final class StatusItemController {
             let image = BrandMark.statusItem()
             image.accessibilityDescription = "Runway — idle"
             return image
+        case .approval:
+            // The one menu bar state that is asking for something back.
+            return tinted("exclamationmark.circle.fill", .systemOrange, template: false)
         case .running:
             return tinted("circle.dotted", .systemBlue, template: false)
         case .failed:
@@ -96,6 +102,28 @@ public final class StatusItemController {
         scopeItem.isEnabled = false
         menu.addItem(scopeItem)
 
+        // Anything waiting on this account, first and named as such. It is
+        // the only entry in this menu that is worth opening a browser for
+        // right now, so it does not get buried in the run list below.
+        let awaiting = model.runsAwaitingMe
+        if !awaiting.isEmpty {
+            menu.addItem(.separator())
+            for run in awaiting.prefix(5) {
+                let environments = run.blockedEnvironmentLabel.map { " → \($0)" } ?? ""
+                let item = NSMenuItem(
+                    title: "Approve \(run.repositoryName) #\(run.runNumber)\(environments)…",
+                    action: #selector(openRun(_:)),
+                    keyEquivalent: ""
+                )
+                item.target = self
+                item.representedObject = run
+                item.image = Self.symbol(for: .approval)
+                item.toolTip = "Opens the run on GitHub. Approving happens there — "
+                    + "Runway's token is read-only by design."
+                menu.addItem(item)
+            }
+        }
+
         // One entry per live run, click to open in the browser.
         let live = model.relevantRuns
         if !live.isEmpty {
@@ -112,7 +140,7 @@ public final class StatusItemController {
                 )
                 item.target = self
                 item.representedObject = run
-                item.image = Self.symbol(for: IslandModel.mood(for: run.status))
+                item.image = Self.symbol(for: IslandModel.mood(for: run))
                 menu.addItem(item)
             }
         }
@@ -155,9 +183,15 @@ public final class StatusItemController {
         }
         let live = model.relevantRuns
         guard !live.isEmpty else { return "Nothing running" }
-        let running = live.filter(\.isActive).count
+        let mine = model.runsAwaitingMe.count
+        let blocked = model.blockedRuns.count
+        let running = live.filter { $0.isActive && !$0.isBlockedOnApproval }.count
         let failed = live.filter { $0.status.isFailure }.count
         var parts: [String] = []
+        // Leads with the approval for the same reason the island does: it is
+        // the only line here that is a request rather than a report.
+        if mine > 0 { parts.append("\(mine) waiting on you") }
+        else if blocked > 0 { parts.append("\(blocked) waiting for approval") }
         if running > 0 { parts.append("\(running) running") }
         if failed > 0 { parts.append("\(failed) failed") }
         return parts.isEmpty ? "\(live.count) recent" : parts.joined(separator: ", ")
@@ -208,10 +242,13 @@ public final class StatusItemController {
         let mood = model.mood
         let count = model.relevantRuns.count
         let update = UpdateCheck.availableVersion
-        guard mood != lastMood || count != lastCount || update != lastUpdate else { return }
+        let approvals = model.runsAwaitingMe.count
+        guard mood != lastMood || count != lastCount || update != lastUpdate
+                || approvals != lastApprovals else { return }
         lastUpdate = update
         lastMood = mood
         lastCount = count
+        lastApprovals = approvals
 
         if let button = statusItem.button {
             button.image = Self.symbol(for: mood, hasToken: TokenCache.shared.token() != nil)

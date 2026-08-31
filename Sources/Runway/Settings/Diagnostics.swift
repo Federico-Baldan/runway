@@ -18,6 +18,7 @@ enum Diagnostics {
         displays()
         placement()
         filters()
+        notifications()
         account()
     }
 
@@ -118,6 +119,25 @@ enum Diagnostics {
             }
             print("  the values in force are the ones printed above, not necessarily these")
         }
+        print()
+    }
+
+    /// The other half of "it never told me": whether a banner could even be
+    /// delivered, and the rule that decides whether one is sent at all.
+    private static func notifications() {
+        print("approval banners: \(Preferences.shared.approvalNotifications ? "on" : "off")")
+        if let identifier = Bundle.main.bundleIdentifier {
+            print("  bundle: \(identifier)")
+            print("  the system's own answer is in System Settings > Notifications > Runway")
+        } else {
+            print("  !! running as a bare executable, not an app bundle — macOS has")
+            print("     nothing to attach a notification permission to. Banners work")
+            print("     from the installed Runway.app; `make demo` cannot show one.")
+        }
+        print("  Runway notifies ONLY when GitHub says this account can approve the")
+        print("  deployment (current_user_can_approve on /pending_deployments). A")
+        print("  colleague's deploy reaching production is drawn on the island in")
+        print("  amber and never sent to Notification Centre.")
         print()
     }
 

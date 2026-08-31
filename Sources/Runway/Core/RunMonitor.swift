@@ -109,6 +109,12 @@ public actor RunMonitor {
     /// re-fetched on every tick just because it is still on screen.
     private var jobCache: [String: [Job]] = [:]
 
+    /// Pending deployments, keyed the same way. Kept so a run that is blocked
+    /// on an approval keeps its environment names between polls even if the
+    /// endpoint has a bad minute — the island would otherwise flicker between
+    /// "waiting for you to approve production" and a bare "waiting".
+    private var approvalCache: [String: [PendingDeployment]] = [:]
+
     public init(client: GitHubClient = GitHubClient(), cadence: Cadence = Cadence()) {
         self.client = client
         self.cadence = cadence
@@ -209,6 +215,7 @@ public actor RunMonitor {
     public func resetForNewToken() async {
         await client.invalidateCache()
         jobCache.removeAll()
+        approvalCache.removeAll()
         watched = []
         repoListFetchedAt = nil
         currentUser = nil
@@ -393,8 +400,28 @@ public actor RunMonitor {
     /// moving or freshly finished — the only ones the island shows.
     static func shouldFetchJobs(for run: WorkflowRun, now: Date = Date()) -> Bool {
         if run.isActive { return true }
+        // A run waiting on a person is not moving and not finished. Its
+        // `finished_at` is however long ago somebody opened the pull request,
+        // so the two-minute window below would drop it — and it is precisely
+        // the run whose job list says *which* job is blocked.
+        if run.status.isAwaitingApproval { return true }
         guard let finishedAt = run.finishedAt else { return false }
         return now.timeIntervalSince(finishedAt) < 120
+    }
+
+    /// Should this run cost a *third* request, for its pending deployments?
+    ///
+    /// Only when it has already said it is waiting. The endpoint answers `[]`
+    /// for every run that is not blocked, so asking speculatively would spend
+    /// one request per run per poll to learn nothing — the same trap
+    /// `shouldFetchJobs` exists to avoid, one level further in.
+    ///
+    /// Checked against the run *with its jobs attached*: a run can report
+    /// `in_progress` at the top level while one of its jobs sits on
+    /// `waiting`, which is exactly the shape of a build that has reached its
+    /// deploy stage.
+    static func shouldFetchApprovals(for run: WorkflowRun) -> Bool {
+        run.status.isAwaitingApproval || run.jobs.contains { $0.status.isAwaitingApproval }
     }
 
     /// Attach jobs and steps to the runs that warrant them.
@@ -425,9 +452,37 @@ public actor RunMonitor {
             } else {
                 copy.jobs = jobCache[run.identity] ?? []
             }
+
+            copy.pendingDeployments = await pendingDeployments(for: copy)
             result.append(copy)
         }
         return result
+    }
+
+    /// The environments a blocked run is parked on, or nothing at all.
+    ///
+    /// Never throws. An approval is a *detail* on a run the island is already
+    /// drawing correctly — `waiting` is visible with or without the
+    /// environment names — and this endpoint has more ways to be refused than
+    /// the others: a repository whose environments the token cannot see
+    /// answers 403 while `/actions/runs` on the same repository answers 200.
+    /// Failing the poll over that would take out every other repository's runs
+    /// to learn the name of one environment.
+    private func pendingDeployments(for run: WorkflowRun) async -> [PendingDeployment] {
+        guard Self.shouldFetchApprovals(for: run) else {
+            approvalCache[run.identity] = nil
+            return []
+        }
+        do {
+            let response = try await client.fetchPendingDeployments(
+                repository: run.repository,
+                runID: run.id
+            )
+            approvalCache[run.identity] = response.value
+            return response.value
+        } catch {
+            return approvalCache[run.identity] ?? []
+        }
     }
 
     /// Drop cached job detail for runs that have left the window.
@@ -437,6 +492,7 @@ public actor RunMonitor {
     /// narrowed, then re-fetch all of it the moment it widened again.
     private func pruneJobCache(keeping identities: Set<String>) {
         jobCache = jobCache.filter { identities.contains($0.key) }
+        approvalCache = approvalCache.filter { identities.contains($0.key) }
     }
 
     /// Poll cadence for the next tick, as a pure function of its inputs.

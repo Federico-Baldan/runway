@@ -100,6 +100,8 @@ struct SettingsView: View {
                     Divider()
                     whichRepositories
                     Divider()
+                    alerts
+                    Divider()
                     display
                 }
                 .padding(20)
@@ -121,6 +123,8 @@ struct SettingsView: View {
         .onAppear {
             checkToken()
             launchAtLogin = LaunchAtLogin.isEnabled
+            ApprovalNotifier.prepare()
+            ApprovalNotifier.refreshAuthorization()
         }
     }
 
@@ -629,6 +633,58 @@ struct SettingsView: View {
                     .padding(.leading, 2)
             }
 
+        }
+    }
+
+    // MARK: - Alerts
+
+    /// Everything that reaches out rather than waiting to be looked at.
+    ///
+    /// One section because they answer the same question — *when should Runway
+    /// interrupt you* — and because the two settings pull in opposite
+    /// directions: a haptic is for the run you are already watching, a banner
+    /// is for the one you are not.
+    private var alerts: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Alerts")
+                .font(.headline)
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .top) {
+                    Toggle(isOn: $preferences.approvalNotifications) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Tell me when a deployment needs my approval")
+                                .font(.system(size: 12, weight: .medium))
+                            markdown("A Notification Centre banner, only when GitHub says "
+                                     + "**you** can approve it. A colleague's deploy reaching "
+                                     + "production shows on the island in amber and is never "
+                                     + "sent here.")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .toggleStyle(.switch)
+                    Spacer(minLength: 6)
+                    overrideBadge(EnvironmentDefault.notifyApprovals)
+                }
+
+                if preferences.approvalNotifications {
+                    notificationPermission
+                }
+
+                Text("Runway never approves anything for you: its token is read-only by "
+                     + "design, so the banner and the menu both just open the run on GitHub. "
+                     + "Granting a deployment is a write GitHub puts behind a separate "
+                     + "permission, and asking for it would mean asking for a token that "
+                     + "can deploy.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Divider().padding(.vertical, 2)
+
             Toggle(isOn: $preferences.haptics) {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Haptic feedback")
@@ -652,6 +708,50 @@ struct SettingsView: View {
                 .controlSize(.small)
                 .padding(.leading, 2)
             }
+        }
+    }
+
+    /// What macOS currently says, and the one button that can change it.
+    @ViewBuilder
+    private var notificationPermission: some View {
+        let authorization = ApprovalNotifier.authorization
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Circle()
+                .fill(permissionColour(authorization))
+                .frame(width: 7, height: 7)
+            Text(authorization.label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 4)
+        }
+        .padding(.leading, 2)
+
+        HStack(spacing: 8) {
+            switch authorization {
+            case .notDetermined:
+                Button("Allow Notifications…") {
+                    ApprovalNotifier.requestAuthorization { _ in }
+                }
+            case .denied:
+                Button("Open Notification Settings") { ApprovalNotifier.openSystemSettings() }
+                Button("Recheck") { ApprovalNotifier.refreshAuthorization() }
+            case .authorized:
+                Button("Send a test banner") { ApprovalNotifier.demo() }
+            case .unavailable:
+                Button("Recheck") { ApprovalNotifier.refreshAuthorization() }
+            }
+        }
+        .controlSize(.small)
+        .padding(.leading, 2)
+    }
+
+    private func permissionColour(_ authorization: ApprovalNotifier.Authorization) -> Color {
+        switch authorization {
+        case .authorized: return .green
+        case .denied: return .orange
+        case .notDetermined: return .secondary
+        case .unavailable: return .orange
         }
     }
 
@@ -746,10 +846,11 @@ struct SettingsView: View {
                     .disabled(tokenField.isEmpty)
             }
 
-            Text("Create a **fine-grained** token with **Actions: Read** — that one box — and "
-                 + "select the repositories you want to watch. Runway never reads your code, so "
-                 + "no other permission is needed. It is stored in your macOS Keychain, never on "
-                 + "disk. A classic token with the `repo` scope also works, but grants far more.")
+            markdown("Create a **fine-grained** token with **Actions: Read** — that one box "
+                     + "— and select the repositories you want to watch. That single permission "
+                     + "also covers the approval check, so nothing here asks for more than it "
+                     + "did. It is stored in your macOS Keychain, never on disk. A classic "
+                     + "token with the `repo` scope also works, but grants far more.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -864,6 +965,16 @@ struct SettingsView: View {
                 }
             }
         }
+    }
+
+    /// `Text` over a string built at runtime, with markdown still parsed.
+    ///
+    /// `Text("a" + "b")` picks the `StringProtocol` overload, and that one does
+    /// not read markdown — which is why the token advice below used to render
+    /// its own asterisks on screen. Naming the key type puts it back on the
+    /// overload that does.
+    private func markdown(_ string: String) -> Text {
+        Text(LocalizedStringKey(string))
     }
 
     /// A "$RUNWAY_X is set" hint with a one-click reset back to its value.

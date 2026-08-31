@@ -8,16 +8,27 @@ public enum IslandMood: Sendable, Equatable {
     case running
     case failed
     case success
+    /// Something is parked waiting for a person to approve it.
+    case approval
     case error
 
-    /// Worst-status-wins ordering: a failure outranks a run, a run outranks a success.
+    /// Worst-status-wins ordering: a failure outranks a run, a run outranks a
+    /// success.
+    ///
+    /// `approval` sits **above** `failed`, which looks wrong for about a
+    /// second. A failure has already happened and will not change no matter how
+    /// long you look at it; an approval is the only state on the island where
+    /// something is waiting on *you*, and where not noticing has a cost —
+    /// GitHub cancels an unapproved deployment after thirty days. So when a
+    /// repository has both, the island leads with the one you can act on.
     var rank: Int {
         switch self {
         case .idle: return 0
         case .success: return 1
         case .running: return 2
         case .failed: return 3
-        case .error: return 4
+        case .approval: return 4
+        case .error: return 5
         }
     }
 }
@@ -76,6 +87,7 @@ public final class IslandModel {
         state = newState
         stateSignature = newState.signature
         Haptics.runsChanged(newState.runs)
+        ApprovalNotifier.runsChanged(newState.runs)
         recomputeDerivedState()
         updateTicker()
         onDisplayChange?()
@@ -122,7 +134,7 @@ public final class IslandModel {
         recomputeRelevantRuns()
 
         mood = worstMood()
-        headline = relevantRuns.first { Self.mood(for: $0.status) == mood }
+        headline = relevantRuns.first { Self.mood(for: $0) == mood }
             ?? relevantRuns.first
         collapsedRuns = Array(relevantRuns.prefix(collapsedRowLimit))
         visibleActors = distinctLogins()
@@ -133,12 +145,25 @@ public final class IslandModel {
             // Anything actually in flight, always.
             if run.isActive { return true }
 
+            // A run parked on an approval has no linger window at all. It is
+            // not finished — it is stopped, indefinitely, waiting for a person
+            // — and `action_required` carries a `finished_at` of whenever the
+            // pull request was opened, so the thirty-second rule below would
+            // have discarded it before it was ever drawn once.
+            if run.isBlockedOnApproval { return true }
+
             guard let finished = run.finishedAt else { return false }
             let age = now.timeIntervalSince(finished)
 
             return run.status.isFailure ? age < failedLinger : age < finishedLinger
         }
         relevantRuns = live.sorted { lhs, rhs in
+            // Whatever needs a human first, then whatever is moving, then
+            // whatever broke — the same order the moods rank in, and for the
+            // same reason.
+            let lhsBlocked = lhs.isBlockedOnApproval
+            let rhsBlocked = rhs.isBlockedOnApproval
+            if lhsBlocked != rhsBlocked { return lhsBlocked }
             if lhs.isActive != rhs.isActive { return lhs.isActive }
             let lhsFailed = lhs.status.isFailure
             let rhsFailed = rhs.status.isFailure
@@ -151,7 +176,7 @@ public final class IslandModel {
         if state.error != nil { return .error }
         var worst = IslandMood.idle
         for run in relevantRuns {
-            let runMood = Self.mood(for: run.status)
+            let runMood = Self.mood(for: run)
             if runMood.rank > worst.rank { worst = runMood }
         }
         return worst
@@ -176,12 +201,24 @@ public final class IslandModel {
     }
 
     static func mood(for status: RunStatus) -> IslandMood {
+        if status.isAwaitingApproval { return .approval }
         if status.isActive { return .running }
         if status.isFailure { return .failed }
         switch status {
         case .success: return .success
         default: return .idle
         }
+    }
+
+    /// The run's mood, approvals included.
+    ///
+    /// Separate from the status-only form because a run can be `in_progress`
+    /// at the top level while one of its jobs sits on a required reviewer —
+    /// the shape of every build that has reached its deploy stage. Reading the
+    /// run's status alone would draw that as "building", which is exactly
+    /// wrong: nothing is building, and nothing will until somebody clicks.
+    static func mood(for run: WorkflowRun) -> IslandMood {
+        run.isBlockedOnApproval ? .approval : mood(for: run.status)
     }
 
     /// Everything the headline is *not* describing.
@@ -215,8 +252,21 @@ public final class IslandModel {
         return !relevantRuns.isEmpty
     }
 
+    /// Runs parked on a person, worst first.
+    public var blockedRuns: [WorkflowRun] {
+        relevantRuns.filter(\.isBlockedOnApproval)
+    }
+
+    /// Runs GitHub says this account can unblock.
+    public var runsAwaitingMe: [WorkflowRun] {
+        relevantRuns.filter(\.awaitsMyApproval)
+    }
+
     /// How far through its linger window the most recent finished run is, 0...1.
     public var settleProgress: Double {
+        // An approval never fades. It is not a finished run being polite about
+        // getting out of the way; it is a question nobody has answered.
+        guard blockedRuns.isEmpty else { return 0 }
         guard !relevantRuns.contains(where: \.isActive) else { return 0 }
         guard let finished = relevantRuns.compactMap(\.finishedAt).max() else { return 0 }
 

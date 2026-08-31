@@ -28,10 +28,12 @@ public enum EnvironmentDefault {
     public static let repoLimit = "RUNWAY_REPO_LIMIT"
     public static let organizations = "RUNWAY_ORGS"
     public static let host = "RUNWAY_HOST"
+    public static let notifyApprovals = "RUNWAY_NOTIFY_APPROVALS"
 
     /// Every variable Runway reads, for `--diagnose` and the README.
     public static let all = [
         actorMode, actors, repoScope, repositories, repoLimit, organizations, host,
+        notifyApprovals,
     ]
 
     static func string(_ name: String) -> String? {
@@ -43,6 +45,18 @@ public enum EnvironmentDefault {
     static func int(_ name: String) -> Int? {
         guard let raw = string(name) else { return nil }
         return Int(raw)
+    }
+
+    /// A flag, written the way people actually write flags in a shell profile.
+    /// Anything unrecognised is treated as unset rather than as `false`, so a
+    /// typo does not silently turn a feature off.
+    static func bool(_ name: String) -> Bool? {
+        guard let raw = string(name)?.lowercased() else { return nil }
+        switch raw {
+        case "1", "true", "yes", "on": return true
+        case "0", "false", "no", "off": return false
+        default: return nil
+        }
     }
 
     /// Comma- or space-separated list, e.g. `RUNWAY_ACTORS="@me, alice, bob"`.
@@ -76,6 +90,7 @@ public final class Preferences {
         static let watchedActors = "actors.watched"
         static let currentUser = "account.login"
         static let haptics = "island.haptics"
+        static let approvalNotifications = "notify.approvals"
     }
 
     private let defaults: UserDefaults
@@ -124,6 +139,9 @@ public final class Preferences {
 
         self.currentUser = defaults.string(forKey: Key.currentUser)
         self.haptics = defaults.object(forKey: Key.haptics) as? Bool ?? true
+        self.approvalNotifications = (defaults.object(forKey: Key.approvalNotifications) as? Bool)
+            ?? EnvironmentDefault.bool(EnvironmentDefault.notifyApprovals)
+            ?? true
 
         // `RUNWAY_ACTORS` without `RUNWAY_ACTOR_MODE` reads as "watch these
         // people" — taking the list but leaving the mode on `.me` would ignore
@@ -162,6 +180,8 @@ public final class Preferences {
             if let value = EnvironmentDefault.list(name) { organizations = Set(value) }
         case EnvironmentDefault.host:
             if let value = EnvironmentDefault.string(name) { host = value }
+        case EnvironmentDefault.notifyApprovals:
+            if let value = EnvironmentDefault.bool(name) { approvalNotifications = value }
         default:
             break
         }
@@ -217,6 +237,15 @@ public final class Preferences {
         didSet {
             defaults.set(haptics, forKey: Key.haptics)
             Haptics.isEnabled = haptics
+        }
+    }
+
+    /// A Notification Centre banner when a deployment is waiting on **your**
+    /// approval. Never for somebody else's — see `ApprovalCheck`.
+    public var approvalNotifications: Bool {
+        didSet {
+            defaults.set(approvalNotifications, forKey: Key.approvalNotifications)
+            ApprovalNotifier.isEnabled = approvalNotifications
         }
     }
 

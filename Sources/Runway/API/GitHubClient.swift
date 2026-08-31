@@ -405,6 +405,29 @@ public actor GitHubClient {
         return Conditional(value: response.value.jobs, notModified: response.notModified)
     }
 
+    /// Environments one run is parked on, waiting for a human.
+    ///
+    /// A third request per run, and by far the rarest: it is only ever asked
+    /// for a run that has already said it is `waiting` or `action_required` —
+    /// see `RunMonitor.shouldFetchApprovals`. On a normal poll it is not sent
+    /// at all, so the rate-limit arithmetic in `docs/polling.md` is unchanged.
+    ///
+    /// **Actions: Read** covers it. GitHub's permissions reference lists this
+    /// endpoint under the same repository permission as `/actions/runs` and
+    /// `/actions/runs/{id}/jobs`, which is what makes reading approvals free in
+    /// the only currency that matters here — what the token is allowed to do.
+    /// The `POST` that *grants* an approval is a different story (Deployments:
+    /// write), and Runway does not make it.
+    public func fetchPendingDeployments(
+        repository: String,
+        runID: Int
+    ) async throws -> Conditional<[PendingDeployment]> {
+        try await get(
+            path: "/repos/\(repository)/actions/runs/\(runID)/pending_deployments",
+            cacheKey: "pending:\(repository):\(runID)"
+        )
+    }
+
     // MARK: - Transport
 
     /// One conditional GET, decoded.

@@ -108,6 +108,29 @@ public enum RunStatus: String, Codable, Sendable, CaseIterable {
         }
     }
 
+    /// Parked waiting for a **person**, not for a runner.
+    ///
+    /// Two different GitHub mechanisms land here and the API spells them
+    /// differently, which is why this is one property rather than a comparison:
+    ///
+    ///  * `status: "waiting"` — a deployment job pointed at an environment with
+    ///    required reviewers. The run is still in flight; nothing will move
+    ///    until somebody clicks *Approve and deploy*.
+    ///  * `conclusion: "action_required"` — the run stopped and is asking for
+    ///    something, most often a maintainer approving a first-time
+    ///    contributor's pull request.
+    ///
+    /// Neither is a failure and neither is progress, and a CI island that draws
+    /// them as either is lying about who is blocked.
+    public var isAwaitingApproval: Bool {
+        switch self {
+        case .waiting, .actionRequired:
+            return true
+        default:
+            return false
+        }
+    }
+
     /// Lowercase label for tooltips.
     public var label: String {
         switch self {
@@ -306,6 +329,15 @@ public struct WorkflowRun: Codable, Sendable, Hashable, Identifiable {
     /// see `RunMonitor.shouldFetchJobs`.
     public var jobs: [Job] = []
 
+    /// Environments this run is parked on, waiting for a human to approve.
+    ///
+    /// A third request, and the rarest: it is only ever made for a run that has
+    /// already said it is waiting — see `RunMonitor.shouldFetchApprovals`. Not
+    /// decoded from the run payload because GitHub does not put it there; it
+    /// comes from `/actions/runs/{id}/pending_deployments`, which the same
+    /// **Actions: Read** permission already covers.
+    public var pendingDeployments: [PendingDeployment] = []
+
     public init(
         id: Int,
         name: String? = nil,
@@ -323,7 +355,8 @@ public struct WorkflowRun: Codable, Sendable, Hashable, Identifiable {
         actor: GitHubActor? = nil,
         triggeringActor: GitHubActor? = nil,
         repository: String = "",
-        jobs: [Job] = []
+        jobs: [Job] = [],
+        pendingDeployments: [PendingDeployment] = []
     ) {
         self.id = id
         self.name = name
@@ -342,6 +375,7 @@ public struct WorkflowRun: Codable, Sendable, Hashable, Identifiable {
         self.triggeringActor = triggeringActor
         self.repository = repository
         self.jobs = jobs
+        self.pendingDeployments = pendingDeployments
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -477,7 +511,13 @@ public struct WorkflowRun: Codable, Sendable, Hashable, Identifiable {
         return URL(string: "https://github.com/\(repository)/actions/runs/\(id)")
     }
 
-    /// Change signature for dedupe: identity, status, jobs, running steps.
+    /// Change signature for dedupe: identity, status, jobs, running steps, and
+    /// what the run is waiting on.
+    ///
+    /// The approval part is not decoration. Everything downstream — the island
+    /// redrawing, the notification firing — hangs off this string differing,
+    /// and a run that goes from *blocked on production* to *blocked on
+    /// production, and you can approve it* changes nothing else about itself.
     public var signature: String {
         let jobPart = jobs
             .map { "\($0.name):\($0.status.rawValue)" }
@@ -486,7 +526,11 @@ public struct WorkflowRun: Codable, Sendable, Hashable, Identifiable {
             .map(\.name)
             .sorted()
             .joined(separator: ",")
-        return "\(identity)|\(status.rawValue)|\(jobPart)|\(stepPart)"
+        let approvalPart = pendingDeployments
+            .map { "\($0.environment.name):\($0.currentUserCanApprove)" }
+            .sorted()
+            .joined(separator: ",")
+        return "\(identity)|\(status.rawValue)|\(jobPart)|\(stepPart)|\(approvalPart)"
     }
 }
 

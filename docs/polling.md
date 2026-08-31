@@ -64,6 +64,17 @@ looking at.
 Job detail is also filtered *before* it is fetched, so a colleague's run that the
 actor filter is about to discard never costs a request.
 
+**The approval check is gated harder.** Pending deployments — which environments
+a run is parked on, and whether this account can approve them — are a *third*
+request, and one that answers `[]` for every run that is not blocked. So it is
+only ever sent for a run that has already reported `status: "waiting"` or
+`conclusion: "action_required"`: `RunMonitor.shouldFetchApprovals`. On a normal
+poll it is not sent at all, and when it is, it is one request for a run that is
+going to sit there for hours. It also never fails a poll — the endpoint can 403
+on a repository whose environments the token cannot see while `/actions/runs` on
+the same repository answers 200, and losing every other repository's runs over
+one environment name would be a bad trade.
+
 ## Cadence
 
 | State | Interval |

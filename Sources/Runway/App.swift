@@ -155,10 +155,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onTokenChanged: { [weak self] in
                 TokenCache.shared.invalidate()
                 Haptics.resetBaseline()
+                // A different account has a different idea of what is waiting
+                // on it, so the "already told you about this" record goes too.
+                ApprovalNotifier.resetBaseline()
                 self?.resetForNewToken()
             }
         )
         Haptics.isEnabled = Preferences.shared.haptics
+        ApprovalNotifier.isEnabled = Preferences.shared.approvalNotifications
+        // Installs the click handler and reads the current permission. It does
+        // not ask for one — see `ApprovalNotifier.prepare`.
+        ApprovalNotifier.prepare()
         statusItem = StatusItemController(
             model: model,
             onOpenSettings: { [weak self] in self?.settingsWindow?.show() },
@@ -170,6 +177,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Scripted local data only — no monitor, no network, no keychain.
             print("demo mode: scripted runs, no GitHub calls")
             TokenCache.shared.isDisabled = true
+            // The demo script includes a run parked on an approval, and a
+            // banner about a repository that does not exist is not a demo.
+            ApprovalNotifier.isEnabled = false
             demoTask = DemoData.run(model: model)
             observeModelForLayout()
             return

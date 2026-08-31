@@ -18,6 +18,23 @@ public enum DemoData {
         let jobs: [(String, RunStatus)]
         /// step name -> (job, status)
         let steps: [(String, String, RunStatus)]
+        /// Environments the run is parked on, if any.
+        var pending: [PendingDeployment] = []
+    }
+
+    /// The environment a demo deploy waits on, with this account on the
+    /// reviewer list — the shape `ApprovalCheck` reads as `.needsMe`.
+    nonisolated static func production(canApprove: Bool) -> PendingDeployment {
+        PendingDeployment(
+            environment: PendingDeployment.Environment(id: 4_211, name: "production"),
+            waitTimer: 0,
+            waitTimerStartedAt: nil,
+            currentUserCanApprove: canApprove,
+            reviewers: canApprove
+                ? [DeploymentReviewer(kind: .user, name: "you"),
+                   DeploymentReviewer(kind: .team, name: "platform")]
+                : [DeploymentReviewer(kind: .user, name: "alice")]
+        )
     }
 
     /// A compressed but faithful build-and-deploy run.
@@ -61,6 +78,41 @@ public enum DemoData {
         Frame(at: 9, runStatus: .failure,
               jobs: [("lint", .failure), ("test", .skipped)],
               steps: [("eslint", "lint", .failure), ("unit", "test", .skipped)]),
+    ]
+
+    /// A run that reaches its deploy stage and stops, waiting for a person.
+    ///
+    /// The state the whole approval feature exists for, and the one that is
+    /// otherwise almost impossible to see while developing: it needs a
+    /// repository with a protected environment, a deploy job, and somebody
+    /// willing to leave it hanging.
+    static let approvalScript: [Frame] = [
+        Frame(at: 0, runStatus: .inProgress,
+              jobs: [("build", .inProgress), ("deploy", .queued)],
+              steps: [("compile", "build", .inProgress), ("bundle", "build", .queued),
+                      ("release", "deploy", .queued)]),
+
+        Frame(at: 4, runStatus: .inProgress,
+              jobs: [("build", .success), ("deploy", .waiting)],
+              steps: [("compile", "build", .success), ("bundle", "build", .success),
+                      ("release", "deploy", .waiting)],
+              pending: [production(canApprove: true)]),
+
+        Frame(at: 9, runStatus: .waiting,
+              jobs: [("build", .success), ("deploy", .waiting)],
+              steps: [("compile", "build", .success), ("bundle", "build", .success),
+                      ("release", "deploy", .waiting)],
+              pending: [production(canApprove: true)]),
+
+        Frame(at: 15, runStatus: .inProgress,
+              jobs: [("build", .success), ("deploy", .inProgress)],
+              steps: [("compile", "build", .success), ("bundle", "build", .success),
+                      ("release", "deploy", .inProgress)]),
+
+        Frame(at: 20, runStatus: .success,
+              jobs: [("build", .success), ("deploy", .success)],
+              steps: [("compile", "build", .success), ("bundle", "build", .success),
+                      ("release", "deploy", .success)]),
     ]
 
     /// Build one run from a script frame.
@@ -107,7 +159,8 @@ public enum DemoData {
             actor: GitHubActor(login: login),
             triggeringActor: GitHubActor(login: login),
             repository: repository,
-            jobs: jobs
+            jobs: jobs,
+            pendingDeployments: frame.pending
         )
     }
 
@@ -143,7 +196,7 @@ public enum DemoData {
             run(frame: withFailure ? failScript[2] : script[min(tick, script.count - 1)],
                 repository: "acme/api", id: 90_200, runNumber: 1_204,
                 branch: "feat/payments", login: "alice", startedAt: now.addingTimeInterval(-41)),
-            run(frame: script[max(tick - 1, 0)],
+            run(frame: approvalScript[min(tick + 1, approvalScript.count - 1)],
                 repository: "acme/infra", id: 90_300, runNumber: 88,
                 branch: "release/2.4", login: "bob", startedAt: now.addingTimeInterval(-12),
                 attempt: 2),
@@ -165,7 +218,7 @@ public enum DemoData {
             var cycle = 0
             while !Task.isCancelled {
                 let startedAt = Date()
-                switch cycle % 3 {
+                switch cycle % 4 {
                 case 0:
                     for frame in script {
                         guard !Task.isCancelled else { return }
@@ -175,6 +228,15 @@ public enum DemoData {
                         try? await Task.sleep(nanoseconds: 2_400_000_000)
                     }
                 case 1:
+                    for frame in approvalScript {
+                        guard !Task.isCancelled else { return }
+                        model.apply(state(frame: frame, repository: "acme/infra",
+                                          id: 90_300 + cycle, runNumber: 88 + cycle,
+                                          branch: "release/2.4", login: "you",
+                                          startedAt: startedAt))
+                        try? await Task.sleep(nanoseconds: 2_600_000_000)
+                    }
+                case 2:
                     for frame in failScript {
                         guard !Task.isCancelled else { return }
                         model.apply(state(frame: frame, repository: "acme/api",

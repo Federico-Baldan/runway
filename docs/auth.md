@@ -28,13 +28,21 @@ feature — the app cannot reach your credential without you agreeing.
 
 | Permission | Level | Why |
 |---|---|---|
-| Actions | Read | `/actions/runs` and `/actions/runs/{id}/jobs` |
+| Actions | Read | `/actions/runs`, `/actions/runs/{id}/jobs`, `/actions/runs/{id}/pending_deployments` |
 | Metadata | Read | Mandatory on every fine-grained token; granted automatically |
 
 **Actions: Read, and nothing else.** GitHub's own
 [permissions reference](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens)
-lists both endpoints Runway calls under "Repository permissions for Actions",
-read access, with no additional permission required.
+lists all three endpoints Runway calls under "Repository permissions for
+Actions", read access, with no additional permission required.
+
+The third one is worth spelling out, because it looks like it should cost more
+than it does. Reading **pending deployments** — which environments a run is
+parked on, and whether this account is allowed to approve them — is Actions:
+Read, the same box. *Granting* an approval is the `POST` to the same path, and
+that one is Deployments: **write**. Runway never sends it: the island and the
+notification both just open the run on GitHub. Asking every user for a token
+that can deploy, in order to save one click, is not a trade worth making.
 
 An earlier version of this document asked for `Contents: Read` as well. That was
 wrong — the claim came from advice about *triggering* workflows, which needs
