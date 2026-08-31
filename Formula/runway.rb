@@ -41,9 +41,9 @@
 class Runway < Formula
   desc "Live GitHub Actions runs in the macOS notch and menu bar"
   homepage "https://github.com/Federico-Baldan/runway"
-  version "0.1.3"
-  url "https://github.com/Federico-Baldan/runway/releases/download/v0.1.3/Runway.zip"
-  sha256 "e6a663d91377712e68d64ed1551b7a20ce8726c6a9b75d78757105b03c165a6f"
+  version "0.1.4"
+  url "https://github.com/Federico-Baldan/runway/releases/download/v0.1.4/Runway.zip"
+  sha256 "935be9d3acf29160da060c055c5a5cb42b2b183f40cd2957489adb070209d1b9"
   license "MIT"
 
   depends_on macos: :sonoma
