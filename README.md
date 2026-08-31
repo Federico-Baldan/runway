@@ -96,6 +96,27 @@ creating it. Runway can watch nothing else, whatever the permissions say.
 There's a button in Settings that opens the token page. A classic token with
 the `repo` scope also works.
 
+### Organizations, and the failure that looks like success
+
+If your organization enforces SAML single sign-on, a token that authenticates
+perfectly can still see none of its repositories, because GitHub does not report
+this as an error:
+
+* A **classic** token must be authorized for each SAML organization *after* it
+  is created — open the token, then **Configure SSO → Authorize**. Until you do,
+  `/user/repos` and `/user/orgs` return **`200 OK`** with that organization's
+  rows quietly removed. The only trace is an `X-GitHub-SSO: partial-results`
+  header. Nothing fails; the list is just short.
+* A **fine-grained** token belongs to exactly one resource owner. Created
+  against your personal account it can never see an organization, whatever its
+  permissions; created against the organization it stays inert until an admin
+  approves it. Again, no error — an empty list.
+
+Runway reads that header and says so, in Settings and on the island, rather than
+showing you an empty organization picker and letting you guess. `read:org`
+(classic) or Organization → Members: Read (fine-grained) is what populates the
+picker itself.
+
 Your token goes in the macOS Keychain, never to disk. The app asks for keychain
 access on first launch; that prompt is the whole point.
 

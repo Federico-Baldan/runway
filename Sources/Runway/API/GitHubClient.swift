@@ -5,6 +5,9 @@ public enum GitHubError: Error, LocalizedError, Sendable, Equatable {
     case noToken
     case unauthorized
     case forbidden(String)
+    /// The org enforces SAML SSO and this token was never authorized for it.
+    /// Carries the one-hour authorization URL GitHub puts in `X-GitHub-SSO`.
+    case singleSignOnRequired(authorizeURL: String?)
     case notFound(String)
     case rateLimited(retryAfter: TimeInterval?)
     case serverError(status: Int)
@@ -21,6 +24,9 @@ public enum GitHubError: Error, LocalizedError, Sendable, Equatable {
             return detail.isEmpty
                 ? "GitHub refused the request. The token may be missing the Actions: Read permission."
                 : "GitHub refused the request: \(detail)"
+        case .singleSignOnRequired:
+            return "This organization enforces SAML single sign-on, and this token "
+                + "has not been authorized for it. Authorizing takes one click on GitHub."
         case .notFound(let path):
             return "Not found: \(path). The repository may be private to your token."
         case .rateLimited(let retryAfter):
@@ -42,7 +48,7 @@ public enum GitHubError: Error, LocalizedError, Sendable, Equatable {
         switch self {
         case .rateLimited, .serverError, .network:
             return true
-        case .noToken, .unauthorized, .forbidden, .notFound, .decoding:
+        case .noToken, .unauthorized, .forbidden, .singleSignOnRequired, .notFound, .decoding:
             return false
         }
     }
@@ -57,6 +63,80 @@ public struct Conditional<Value: Sendable>: Sendable {
     public init(value: Value, notModified: Bool) {
         self.value = value
         self.notModified = notModified
+    }
+}
+
+/// What GitHub's `X-GitHub-SSO` header said on the last response.
+///
+/// This header is the only signal the API gives about SAML single sign-on, and
+/// it comes in two shapes that behave *completely* differently:
+///
+///  * **`required`** — sent with a `403` when the request named one org
+///    directly (`/orgs/{org}/repos`). A hard failure, and the header carries a
+///    URL that authorizes the token. That URL expires after one hour.
+///  * **`partial-results`** — sent with a **`200`** when the request could span
+///    several orgs (`/user/repos`, `/user/orgs`). GitHub quietly drops the
+///    unauthorized org's rows and returns the rest. Nothing fails. The list is
+///    just short, and without reading this header the app cannot tell the
+///    difference between "you are in no orgs" and "your token was never
+///    authorized for the org you are in".
+///
+/// The second case is why this type exists: it is the difference between a
+/// blank organization picker and a blank picker that explains itself.
+///
+/// Documented at
+/// <https://docs.github.com/en/rest/authentication/authenticating-to-the-rest-api>
+/// under "Authenticating with a personal access token".
+public enum SSONotice: Sendable, Equatable {
+    /// A single-org request was refused outright. `url` authorizes the token.
+    case required(url: String?)
+    /// A cross-org list came back missing these organizations' rows.
+    /// GitHub identifies them by numeric id, not by login.
+    case partialResults(organizationIDs: [String])
+
+    /// Parse the header value. `nil` when there is nothing to say.
+    ///
+    /// Deliberately tolerant about the exact syntax: GitHub documents the
+    /// `partial-results` form verbatim but never spells out the `required`
+    /// one, so this reads whichever directives are present rather than
+    /// matching a fixed string.
+    public static func parse(_ header: String?) -> SSONotice? {
+        guard let header, !header.isEmpty else { return nil }
+
+        var kind = ""
+        var directives: [String: String] = [:]
+        for (index, part) in header.split(separator: ";").enumerated() {
+            let piece = part.trimmingCharacters(in: .whitespaces)
+            // Split on the FIRST `=` only: the authorize URL contains one of
+            // its own (`?authorization_request=...`).
+            if let separator = piece.firstIndex(of: "=") {
+                let key = String(piece[piece.startIndex..<separator])
+                    .trimmingCharacters(in: .whitespaces).lowercased()
+                let value = String(piece[piece.index(after: separator)...])
+                    .trimmingCharacters(in: .whitespaces)
+                directives[key] = value
+            } else if index == 0 {
+                kind = piece.lowercased()
+            }
+        }
+
+        if kind == "partial-results" || directives["organizations"] != nil {
+            let ids = (directives["organizations"] ?? "")
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            return .partialResults(organizationIDs: ids)
+        }
+        if kind == "required" || directives["url"] != nil {
+            return .required(url: directives["url"])
+        }
+        return nil
+    }
+
+    /// The authorization URL, when GitHub offered one.
+    public var authorizeURL: String? {
+        if case .required(let url) = self { return url }
+        return nil
     }
 }
 
@@ -83,6 +163,18 @@ public actor GitHubClient {
 
     private var etags = ETagStore()
     private var rateLimit = RateLimit()
+    /// The most recent `X-GitHub-SSO` notice, so the UI can explain a list that
+    /// came back short.
+    ///
+    /// Written only by the requests that can carry one — the repository and
+    /// organization lists, marked `tracksSSO` — and written on every one of
+    /// them, absence included. Both halves matter. Letting every endpoint
+    /// write it would have `fetchRuns` clear the notice moments after
+    /// `fetchRepositories` set it, since a per-repository 200 has no header to
+    /// report; never clearing it would leave the warning on screen forever
+    /// after the user authorized the token, which is a worse lie than the
+    /// silence this replaced.
+    private var ssoNotice: SSONotice?
 
     private let decoder: JSONDecoder = {
         let decoder = JSONDecoder()
@@ -141,9 +233,18 @@ public actor GitHubClient {
 
     public func currentRateLimit() -> RateLimit { rateLimit }
 
+    // MARK: - Single sign-on
+
+    /// What GitHub last said about SAML SSO, if anything.
+    public func currentSSONotice() -> SSONotice? { ssoNotice }
+
     /// Forget every cached ETag. Must run on token change: ETags are per-token.
+    ///
+    /// The SSO notice goes with them, and for the same reason: it describes
+    /// what *that* token was authorized for.
     public func invalidateCache() {
         etags.invalidate()
+        ssoNotice = nil
     }
 
     // MARK: - Account
@@ -156,7 +257,7 @@ public actor GitHubClient {
     /// Organizations the account belongs to, for the organization picker.
     public func fetchOrganizations() async throws -> [Organization] {
         try await get(path: "/user/orgs", query: [.init(name: "per_page", value: "100")],
-                      cacheKey: "orgs").value
+                      cacheKey: "orgs", tracksSSO: true).value
     }
 
     /// Confirm a login typed into the actor list actually exists.
@@ -209,7 +310,8 @@ public actor GitHubClient {
                         .init(name: "direction", value: "desc"),
                         .init(name: "per_page", value: "\(min(limit, 100))"),
                     ],
-                    cacheKey: "orgrepos:\(org)"
+                    cacheKey: "orgrepos:\(org)",
+                    tracksSSO: true
                 ).value
                 result.append(contentsOf: page)
             }
@@ -226,7 +328,8 @@ public actor GitHubClient {
                 .init(name: "affiliation", value: affiliation),
                 .init(name: "per_page", value: "\(min(max(limit, 1), 100))"),
             ],
-            cacheKey: "repos:\(affiliation)"
+            cacheKey: "repos:\(affiliation)",
+            tracksSSO: true
         ).value
         return Array(sortedByPush(repos).prefix(limit))
     }
@@ -308,7 +411,8 @@ public actor GitHubClient {
     private func get<T: Decodable & Sendable>(
         path: String,
         query: [URLQueryItem] = [],
-        cacheKey: String
+        cacheKey: String,
+        tracksSSO: Bool = false
     ) async throws -> Conditional<T> {
         // Checked before anything else: an unauthenticated 304 *does* count
         // against the rate limit, so a missing token must never reach the wire.
@@ -362,6 +466,14 @@ public actor GitHubClient {
 
         absorbRateLimitHeaders(http, billed: http.statusCode != 304)
 
+        // Read before the status switch: `partial-results` arrives on a 200,
+        // where nothing else would ever look for it.
+        let sso = SSONotice.parse(http.value(forHTTPHeaderField: "X-GitHub-SSO"))
+        // A 304 is excluded because it reports nothing new by definition — the
+        // absence of a header on an unchanged response is not evidence that
+        // the organization came back.
+        if tracksSSO, http.statusCode != 304 { ssoNotice = sso }
+
         switch http.statusCode {
         case 200:
             etags.store(key: cacheKey, etag: http.value(forHTTPHeaderField: "ETag"), body: data)
@@ -388,6 +500,12 @@ public actor GitHubClient {
             let retryAfter = TimeInterval(http.value(forHTTPHeaderField: "retry-after") ?? "")
             if http.statusCode == 429 || remaining == 0 || retryAfter != nil {
                 throw GitHubError.rateLimited(retryAfter: retryAfter ?? secondsUntilReset(http))
+            }
+            // A SAML org refusing an unauthorized token is a 403 like any
+            // other, and reads as a permissions problem unless this header is
+            // checked. It is not: the token is fine, it just needs one click.
+            if case .required(let url) = sso {
+                throw GitHubError.singleSignOnRequired(authorizeURL: url)
             }
             throw GitHubError.forbidden(messageFromBody(data))
 

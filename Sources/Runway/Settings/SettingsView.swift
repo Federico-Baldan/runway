@@ -56,6 +56,9 @@ struct SettingsView: View {
     @State private var isVerifying = false
     @State private var organizations: [Organization] = []
     @State private var isLoadingOrganizations = false
+    /// Why the organization list is empty or short. Both used to be invisible.
+    @State private var organizationError: String?
+    @State private var organizationSSO: SSONotice?
     @State private var launchAtLogin = LaunchAtLogin.isEnabled
     @State private var launchError: String?
     @State private var newActor = ""
@@ -426,31 +429,111 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-            } else if organizations.isEmpty {
-                HStack(spacing: 8) {
-                    Text("No organizations found for this account.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Button("Reload") { loadOrganizations(force: true) }
-                        .controlSize(.small)
-                }
             } else {
-                ForEach(organizations) { organization in
-                    Toggle(isOn: Binding(
-                        get: { preferences.organizations.contains(organization.login) },
-                        set: { on in
-                            if on { preferences.organizations.insert(organization.login) }
-                            else { preferences.organizations.remove(organization.login) }
-                        }
-                    )) {
-                        Text(organization.login)
-                            .font(.system(size: 11, design: .monospaced))
+                if organizations.isEmpty {
+                    HStack(spacing: 8) {
+                        Text("No organizations came back for this token.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Button("Reload") { loadOrganizations(force: true) }
+                            .controlSize(.small)
                     }
-                    .toggleStyle(.checkbox)
+                } else {
+                    ForEach(organizations) { organization in
+                        Toggle(isOn: Binding(
+                            get: { preferences.organizations.contains(organization.login) },
+                            set: { on in
+                                if on { preferences.organizations.insert(organization.login) }
+                                else { preferences.organizations.remove(organization.login) }
+                            }
+                        )) {
+                            Text(organization.login)
+                                .font(.system(size: 11, design: .monospaced))
+                        }
+                        .toggleStyle(.checkbox)
+                    }
                 }
+                organizationDiagnostic
             }
         }
         .onAppear { loadOrganizations() }
+    }
+
+    /// The sentence that used to be missing.
+    ///
+    /// Ordered by how specific the evidence is: an SSO header names the exact
+    /// problem, a thrown error is at least real, and an empty list with
+    /// neither is a fine-grained token that was pointed at the wrong owner or
+    /// is still waiting on an admin.
+    @ViewBuilder
+    private var organizationDiagnostic: some View {
+        if let notice = organizationSSO {
+            switch notice {
+            case .partialResults(let ids):
+                // The quiet one. HTTP 200, rows missing, no error anywhere.
+                organizationNotice(
+                    ids.count == 1
+                        ? "GitHub left one organization out of this list: this token is not "
+                            + "authorized for its SAML single sign-on."
+                        : "GitHub left \(ids.count) organizations out of this list: this token "
+                            + "is not authorized for their SAML single sign-on.",
+                    detail: "Classic tokens need authorizing per organization after they are "
+                        + "created — open the token, then Configure SSO → Authorize.",
+                    link: ("Open token settings", "https://github.com/settings/tokens")
+                )
+            case .required(let url):
+                organizationNotice(
+                    "This organization enforces SAML single sign-on and refused the token.",
+                    detail: "One click authorizes it. GitHub's link expires an hour after it "
+                        + "was issued, so reload if it has gone stale.",
+                    link: ("Authorize on GitHub", url ?? "https://github.com/settings/tokens")
+                )
+            }
+        } else if let organizationError {
+            organizationNotice(organizationError, detail: nil, link: nil)
+        } else if organizations.isEmpty {
+            organizationNotice(
+                "The token authenticates, but sees no organizations.",
+                detail: "A fine-grained token belongs to one resource owner: set to your "
+                    + "personal account it can never see an org, and set to the org it stays "
+                    + "inert until an admin approves it. A classic token needs the read:org "
+                    + "scope. Check both on the token itself.",
+                link: ("Open token settings", "https://github.com/settings/tokens")
+            )
+        }
+    }
+
+    /// One warning row: a headline, the fix, and a way to go do it.
+    private func organizationNotice(
+        _ message: String,
+        detail: String?,
+        link: (label: String, url: String)?
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .font(.caption)
+                Text(message)
+                    .font(.caption)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let detail {
+                Text(detail)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let link, let url = URL(string: link.url) {
+                HStack(spacing: 8) {
+                    Button(link.label) { NSWorkspace.shared.open(url) }
+                        .controlSize(.small)
+                    Button("Recheck") { loadOrganizations(force: true) }
+                        .controlSize(.small)
+                }
+            }
+        }
+        .padding(.top, 4)
     }
 
     private var explicitRepositoryList: some View {
@@ -708,17 +791,49 @@ struct SettingsView: View {
         onTokenChanged()
     }
 
+    /// Fetch the organizations this token can see — and, when it can't see
+    /// them, why.
+    ///
+    /// This was a `try?` that dropped the error on the floor, which produced
+    /// the single most confusing state the app had: a token that verifies
+    /// green, an empty organization list, and nothing to explain the gap. It
+    /// is worth being precise about why that happens, because GitHub gives no
+    /// error for the common case:
+    ///
+    ///  * A **classic** token in a SAML org must be authorized for that org
+    ///    after it is created. Until it is, `/user/orgs` still returns `200`
+    ///    — just without that org — and says so only in `X-GitHub-SSO:
+    ///    partial-results`.
+    ///  * A **fine-grained** token is bound to one resource owner. Pointed at
+    ///    a personal account it can never see an org, and pointed at the org
+    ///    it stays inert until an admin approves it. Neither is an error
+    ///    either: the list is simply empty.
+    ///
+    /// So an empty list is never self-explanatory, and it now explains itself.
     private func loadOrganizations(force: Bool = false) {
         guard TokenCache.shared.token() != nil else { return }
         guard force || organizations.isEmpty else { return }
         isLoadingOrganizations = true
         Task {
             let client = GitHubClient(baseURL: GitHubClient.baseURL(for: Preferences.shared.host))
-            let result = try? await client.fetchOrganizations()
+            // Immutable, and assigned exactly once on each path: `MainActor.run`
+            // takes a `@Sendable` closure, and Swift 6 refuses to let one
+            // capture a mutable local.
+            let outcome: (organizations: [Organization], failure: String?)
+            do {
+                outcome = (try await client.fetchOrganizations(), nil)
+            } catch {
+                let message = (error as? GitHubError)?.errorDescription
+                    ?? error.localizedDescription
+                outcome = ([], message)
+            }
+            // Read after the call: the header rides on the response that
+            // dropped the rows.
+            let notice = await client.currentSSONotice()
             await MainActor.run {
-                if let result {
-                    organizations = result.sorted { $0.login < $1.login }
-                }
+                organizations = outcome.organizations.sorted { $0.login < $1.login }
+                organizationError = outcome.failure
+                organizationSSO = notice
                 isLoadingOrganizations = false
             }
         }

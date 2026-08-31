@@ -252,6 +252,19 @@ public actor RunMonitor {
     /// Last unfiltered result, so a filter change applies without a new poll.
     private var unfilteredRuns: [WorkflowRun] = []
 
+    /// The warning for a repository list GitHub quietly shortened.
+    ///
+    /// `partial-results` arrives on a `200`: `/user/repos` succeeds, the
+    /// unauthorized organization's repositories are simply not in it, and
+    /// nothing anywhere fails. Without this the island watches the wrong set
+    /// of repositories and looks perfectly healthy doing it.
+    private func partialResultsWarning(_ notice: SSONotice?) -> String? {
+        guard case .partialResults(let ids) = notice, !ids.isEmpty else { return nil }
+        let subject = ids.count == 1 ? "one organization" : "\(ids.count) organizations"
+        return "GitHub left \(subject) out of the repository list: this token is not "
+            + "authorized for SAML single sign-on there."
+    }
+
     private func pollOnce() async {
         do {
             if currentUser == nil {
@@ -263,6 +276,11 @@ public actor RunMonitor {
 
             var collected: [WorkflowRun] = []
             var seenLogins = Set<String>()
+            // Set when a repository is refused for SAML SSO. Held rather than
+            // thrown: one unauthorized organization must not cost the poll
+            // every *other* organization's runs, but it must not vanish
+            // either — silence here is what made this bug unreadable.
+            var ssoBlocked: String?
 
             for index in watched.indices {
                 guard !Task.isCancelled else { return }
@@ -289,6 +307,16 @@ public actor RunMonitor {
                     // for it. Either way it will never produce a run.
                     watched[index].hasWorkflows = false
                     continue
+                } catch let error as GitHubError {
+                    // A SAML organization refusing an unauthorized token looks
+                    // identical to the case above — a 403 per repository —
+                    // and used to be swallowed by it, which is how a whole
+                    // organization could go missing without a word. Skip the
+                    // repository like any other 403, but keep the reason.
+                    guard case .singleSignOnRequired = error else { throw error }
+                    watched[index].hasWorkflows = false
+                    ssoBlocked = error.errorDescription
+                    continue
                 }
 
                 watched[index].hasWorkflows = response.value.totalCount > 0
@@ -314,7 +342,11 @@ public actor RunMonitor {
             state.knownActors = seenLogins.sorted { $0.lowercased() < $1.lowercased() }
             state.rateLimit = await client.currentRateLimit()
             state.lastUpdate = Date()
-            state.error = nil
+            // A poll that succeeded for most repositories still has something
+            // to say if an organization was refused, or if GitHub trimmed the
+            // repository list on the way in.
+            let sso = await client.currentSSONotice()
+            state.error = ssoBlocked ?? partialResultsWarning(sso)
         } catch let error as GitHubError {
             // A hard failure (bad token, missing permission) must not be
             // retried on a backoff curve — it will never start working.
