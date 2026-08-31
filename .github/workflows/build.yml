@@ -51,6 +51,12 @@ jobs:
           esac
           codesign --verify --deep --strict "$APP"
           test -f Runway.zip || { echo "Runway.zip missing"; exit 1; }
+          # Info.plist has always named an icon; until 0.1.4 nothing on the
+          # release path built one, and the copy was guarded by `if [ -f ]`, so
+          # every shipped build carried a dangling CFBundleIconFile and showed
+          # the generic tile. Nothing failed, which is why it lasted. Assert it.
+          test -f "$APP/Contents/Resources/AppIcon.icns" \
+            || { echo "bundle has no AppIcon.icns"; exit 1; }
           echo "packaged app OK"
 
       # `brew install` failed on 0.1.1 with `Errno::ENOENT - Runway.app`: the
@@ -90,6 +96,7 @@ jobs:
           test -f "$APP/Contents/MacOS/Runway" || { echo "missing binary"; exit 1; }
           test -f "$APP/Contents/Info.plist"   || { echo "missing Info.plist"; exit 1; }
           plutil -lint "$APP/Contents/Info.plist"
+          test -f "$APP/Contents/Resources/AppIcon.icns" || { echo "missing app icon"; exit 1; }
           echo "bundle OK"
 
       # The formula is Ruby that nothing else in CI would ever execute, so a

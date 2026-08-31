@@ -33,6 +33,17 @@ swift build -c release --arch arm64 --scratch-path "$ARM64_SCRATCH"
 echo "Building x86_64..."
 swift build -c release --arch x86_64 --scratch-path "$X86_64_SCRATCH"
 
+# The icon is generated, never committed, and a tag build checks out a clean
+# tree — so on the release path there is nothing to copy unless it is drawn
+# here. `make app` builds it, but a tag build never runs `make app`; it runs
+# this script. Every release before 0.1.4 therefore shipped without an icon:
+# the copy below used to be guarded by `if [ -f ]` and quietly did nothing,
+# and Info.plist has always pointed CFBundleIconFile at a file that was not
+# in the bundle. Unguarded on purpose — a missing icon should stop the build,
+# not slip into a release.
+echo "Drawing the icon..."
+make icon
+
 echo "Assembling ${APP}..."
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
@@ -40,9 +51,7 @@ lipo -create -output "$APP/Contents/MacOS/Runway" \
   "$ARM64_SCRATCH/release/Runway" \
   "$X86_64_SCRATCH/release/Runway"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
-if [ -f Resources/AppIcon.icns ]; then
-  cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
-fi
+cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
 # --deep because the bundle is signed as a whole after the binary is swapped in.

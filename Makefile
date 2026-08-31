@@ -25,7 +25,7 @@ app: build icon
 	@mkdir -p "$(CONTENTS)/MacOS" "$(CONTENTS)/Resources"
 	@cp "$(BUILDDIR)/$(BINARY)" "$(CONTENTS)/MacOS/$(BINARY)"
 	@cp Resources/Info.plist "$(CONTENTS)/Info.plist"
-	@if [ -f Resources/AppIcon.icns ]; then cp Resources/AppIcon.icns "$(CONTENTS)/Resources/AppIcon.icns"; fi
+	@cp Resources/AppIcon.icns "$(CONTENTS)/Resources/AppIcon.icns"
 	@echo "APPL????" > "$(CONTENTS)/PkgInfo"
 	@# Sign with the local self-signed identity when it exists, else ad-hoc.
 	@# This matters for the Keychain: an ad-hoc signature's designated
