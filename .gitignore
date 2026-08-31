@@ -17,8 +17,9 @@ secrets.*
 # built app bundle
 *.app/
 
-# generated icon staging dir
+# generated icon: drawn by scripts/make-icon.swift at build time
 AppIcon.iconset/
+Resources/AppIcon.icns
 
 # fablize story state
 .fablize/
