@@ -15,7 +15,12 @@ build:
 	swift build -c $(CONFIG)
 
 # Assemble a minimal LSUIElement app bundle around the built executable.
-app: build
+# `icon` is a prerequisite rather than something you remember to run: the
+# bundle's Info.plist has always declared CFBundleIconFile, but nothing ever
+# built the .icns it points at — it is generated, never committed, and no CI
+# step called `make icon`. Every shipped build therefore carried a dangling
+# icon reference and showed the generic app tile.
+app: build icon
 	@rm -rf "$(APP)"
 	@mkdir -p "$(CONTENTS)/MacOS" "$(CONTENTS)/Resources"
 	@cp "$(BUILDDIR)/$(BINARY)" "$(CONTENTS)/MacOS/$(BINARY)"
