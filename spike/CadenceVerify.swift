@@ -119,6 +119,47 @@ enum CadenceVerify {
         }
 
         print()
+        print("── an approval addressed to you outranks the \"whose runs\" filter ──")
+        // A colleague's deploy parked on YOUR review is not their run any more
+        // in the only sense that matters: you are the one holding it up. The
+        // filter would drop it, so the monitor picks it back up — but only for
+        // `waiting`, the one status that can answer current_user_can_approve,
+        // and only a few, because a queue of deploys behind one reviewer must
+        // not turn into a request storm.
+        func run(_ id: Int, _ status: RunStatus) -> WorkflowRun {
+            WorkflowRun(id: id, status: status, repository: "acme/api")
+        }
+        let pool = [
+            run(1, .waiting), run(2, .waiting), run(3, .inProgress),
+            run(4, .actionRequired), run(5, .waiting), run(6, .success),
+            run(7, .waiting), run(8, .waiting), run(9, .waiting), run(10, .waiting),
+        ]
+        let picked = RunMonitor.deploymentsAwaitingMe(in: pool, excluding: [])
+        assert("only waiting runs are candidates",
+               picked.allSatisfy { $0.status == .waiting })
+        assert("a first-time-contributor gate is not a candidate — it has no reviewers",
+               !picked.contains { $0.status == .actionRequired })
+        assert("capped, so a queue behind one reviewer cannot storm the API",
+               picked.count == 5)
+        assert("runs the filter already kept are not fetched twice",
+               RunMonitor.deploymentsAwaitingMe(
+                   in: pool, excluding: Set(pool.map(\.identity))
+               ).isEmpty)
+
+        print()
+        print("── a run waiting on a person still earns its job detail ──")
+        // Its finished_at is whenever the pull request was opened, so the
+        // two-minute window would have dropped it — and its job list is the
+        // only thing that says WHICH job is blocked.
+        assert("waiting run fetches jobs", RunMonitor.shouldFetchJobs(for: run(11, .waiting)))
+        assert("action_required run fetches jobs",
+               RunMonitor.shouldFetchJobs(for: run(12, .actionRequired)))
+        assert("a run blocked on a person asks for its environments",
+               RunMonitor.shouldFetchApprovals(for: run(13, .waiting)))
+        assert("an ordinary running build does not",
+               !RunMonitor.shouldFetchApprovals(for: run(14, .inProgress)))
+
+        print()
         if failures == 0 {
             print("RESULT: PASS — cadence precedence holds on every combination checked")
         } else {

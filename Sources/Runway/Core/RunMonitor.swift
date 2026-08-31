@@ -338,8 +338,20 @@ public actor RunMonitor {
             // be discarded. The unfiltered set is still kept, so widening the
             // filter in Settings takes effect immediately rather than at the
             // next poll; those runs simply arrive without detail until then.
-            let visible = try await attachJobs(to: filter.apply(collected))
-            let detailed = Dictionary(uniqueKeysWithValues: visible.map { ($0.identity, $0) })
+            //
+            // Plus the runs the filter would drop that are nonetheless waiting
+            // on *this* account — see `deploymentsAwaitingMe`.
+            let mine = filter.apply(collected)
+            let mineIdentities = Set(mine.map(\.identity))
+            let candidates = Self.deploymentsAwaitingMe(in: collected, excluding: mineIdentities)
+            let detailedRuns = try await attachJobs(to: mine + candidates)
+            // A candidate only earns its place if GitHub actually named this
+            // account as able to approve it. The rest were a request each and
+            // are dropped here rather than shown as somebody else's problem.
+            let visible = detailedRuns.filter {
+                mineIdentities.contains($0.identity) || $0.awaitsMyApproval
+            }
+            let detailed = Dictionary(uniqueKeysWithValues: detailedRuns.map { ($0.identity, $0) })
             pruneJobCache(keeping: Set(collected.map(\.identity)))
 
             failureCount = 0
@@ -407,6 +419,33 @@ public actor RunMonitor {
         if run.status.isAwaitingApproval { return true }
         guard let finishedAt = run.finishedAt else { return false }
         return now.timeIntervalSince(finishedAt) < 120
+    }
+
+    /// Runs the "whose runs" filter would hide that are nonetheless waiting on
+    /// this account to approve them.
+    ///
+    /// The filter answers *whose work is this*, and for a colleague's deploy
+    /// parked on you that is the wrong question — you are the one holding it
+    /// up. It is the same argument the actor filter already makes for re-runs:
+    /// re-running somebody else's failed deploy puts it on your island because
+    /// you are now the one waiting on it. This is that, one step further.
+    ///
+    /// Restricted to `status == .waiting`, which is the only shape that can
+    /// ever answer `current_user_can_approve`. A first-time contributor gate
+    /// (`action_required`) has no pending deployments and no reviewer list, so
+    /// widening this to cover it would spend a request per run per poll to
+    /// learn nothing. Capped as well: a busy organization can have a lot of
+    /// deploys queued behind one reviewer, and this runs before the island has
+    /// any say in what it draws.
+    static func deploymentsAwaitingMe(
+        in runs: [WorkflowRun],
+        excluding identities: Set<String>,
+        limit: Int = 5
+    ) -> [WorkflowRun] {
+        runs
+            .filter { $0.status == .waiting && !identities.contains($0.identity) }
+            .prefix(limit)
+            .map { $0 }
     }
 
     /// Should this run cost a *third* request, for its pending deployments?

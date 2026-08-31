@@ -260,13 +260,30 @@ private extension Array where Element == String {
 
 public extension WorkflowRun {
     /// What, if anything, this run is waiting on a person for.
+    ///
+    /// Builds the environment and reviewer lists, so it is for the places that
+    /// need the *words* — the chip, the banner, the tooltip. The two questions
+    /// asked on every redraw have their own answers below.
     var approval: ApprovalCheck.Verdict { ApprovalCheck.verdict(for: self) }
 
     /// Blocked on a human rather than a runner.
-    var isBlockedOnApproval: Bool { approval.isBlocked }
+    ///
+    /// Deliberately not `approval.isBlocked`. This is read inside a sort
+    /// comparator, on every run, on every one-second tick — and the comparator
+    /// alone asks it twice per comparison. Going through the verdict would
+    /// allocate two arrays each time to answer a question that is three
+    /// pointer chases. `spike/ApprovalVerify.swift` asserts the fast path and
+    /// the verdict agree on every fixture, which is the price of having two.
+    var isBlockedOnApproval: Bool {
+        if !pendingDeployments.isEmpty { return true }
+        if status.isAwaitingApproval { return true }
+        return jobs.contains { $0.status.isAwaitingApproval }
+    }
 
     /// GitHub says this account can unblock it.
-    var awaitsMyApproval: Bool { approval.deservesNotification }
+    var awaitsMyApproval: Bool {
+        pendingDeployments.contains { $0.currentUserCanApprove }
+    }
 
     /// A short line for the island: `production` or `production, staging`.
     var blockedEnvironmentLabel: String? {

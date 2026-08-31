@@ -316,6 +316,12 @@ struct StatusGlyph: View {
     /// Redraw the mark when the state under it changes, so a run going from
     /// running to passed *strikes* the check rather than swapping one static
     /// glyph for another.
+    ///
+    /// The hop is load-bearing. Setting `drawn` to false and then to true in
+    /// the same update coalesces into no change at all: SwiftUI only ever sees
+    /// the final value, the trim stays at 1, and the animation this exists for
+    /// silently does not happen. Yielding to the next turn of the main actor
+    /// lets the first value commit, so there is something to animate away from.
     private func redraw() {
         let isBlocked = blocked || status.isAwaitingApproval
         pulse = isBlocked && !reduceMotion
@@ -324,7 +330,9 @@ struct StatusGlyph: View {
             return
         }
         drawn = false
-        withAnimation(.easeOut(duration: 0.42).delay(0.06)) { drawn = true }
+        Task { @MainActor in
+            withAnimation(.easeOut(duration: 0.42)) { drawn = true }
+        }
     }
 
     private var accessibilityLabel: String {
@@ -364,9 +372,16 @@ struct ActivityRing: View {
                     .animation(.spring(duration: 0.55, bounce: 0.12), value: progress)
             }
 
+            // The head. Its LENGTH says whether work is happening — a long arc
+            // for a running job, a bare tick for one still queued — while its
+            // speed stays fixed. Varying the duration instead looked better
+            // and did not work: the animation is bound to `spin`, which only
+            // ever changes once, so a ring that appeared while the job was
+            // queued kept the slow sweep for the rest of the run.
             Circle()
                 .trim(from: 0, to: isMoving ? 0.24 : 0.07)
-                .stroke(colour, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                .stroke(colour.opacity(isMoving ? 1 : 0.7),
+                        style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(spin ? 270 : -90))
                 .animation(sweep, value: spin)
                 .shadow(color: colour.opacity(0.7), radius: size * 0.22)
@@ -374,11 +389,10 @@ struct ActivityRing: View {
         .onAppear { spin = !reduceMotion }
     }
 
-    /// A full turn, from -90° to 270°. Queued work turns slowly; a running job
-    /// turns at a pace you would call "working".
+    /// A full turn, from -90° to 270°.
     private var sweep: Animation? {
         guard !reduceMotion else { return nil }
-        return .linear(duration: isMoving ? 1.15 : 2.8).repeatForever(autoreverses: false)
+        return .linear(duration: 1.2).repeatForever(autoreverses: false)
     }
 }
 
@@ -523,7 +537,6 @@ struct JobTrack: View {
             }
         }
         .frame(height: 10)
-        .animation(Motion.content, value: run.signature)
     }
 
     private var runningLabel: String? {

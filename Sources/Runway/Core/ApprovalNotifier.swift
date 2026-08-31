@@ -178,7 +178,7 @@ public enum ApprovalNotifier {
             guard !announced.contains(key) else { continue }
             announced.insert(key)
             persistAnnounced()
-            post(for: run, environments: environments)
+            post(key: key, for: run, environments: environments)
         }
     }
 
@@ -198,8 +198,11 @@ public enum ApprovalNotifier {
 
     // MARK: - Posting
 
-    private static func post(for run: WorkflowRun, environments: [String]) {
-        guard let center else { return }
+    private static func post(key: String, for run: WorkflowRun, environments: [String]) {
+        guard let center else {
+            forget(key)
+            return
+        }
 
         switch authorization {
         case .authorized:
@@ -208,14 +211,28 @@ public enum ApprovalNotifier {
             // The right moment to ask: something is genuinely waiting on this
             // person, so the prompt has an answer to give.
             requestAuthorization { granted in
-                guard granted, let center = Self.center else { return }
+                guard granted, let center = Self.center else {
+                    Self.forget(key)
+                    return
+                }
                 Self.deliver(for: run, environments: environments, through: center)
             }
         case .denied, .unavailable:
             // The island still shows it in amber; that is the fallback, and it
             // is why the notification is an addition rather than the feature.
-            break
+            //
+            // The record is dropped rather than kept: "already told you" is a
+            // lie when nothing was delivered, and someone who turns
+            // notifications back on an hour later should hear about the
+            // approval that is still sitting there.
+            forget(key)
         }
+    }
+
+    /// Undo an `announced` entry for a banner that never reached anybody.
+    private static func forget(_ key: String) {
+        guard announced.remove(key) != nil else { return }
+        persistAnnounced()
     }
 
     private static func deliver(

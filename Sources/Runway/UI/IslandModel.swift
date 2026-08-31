@@ -65,6 +65,14 @@ public final class IslandModel {
     private let finishedLinger: TimeInterval = 30
     /// Failures linger longer than successes — but still expire.
     private let failedLinger: TimeInterval = 600
+    /// How long a run blocked on *somebody else* stays visible.
+    ///
+    /// A gate somebody else has to open can sit for days — GitHub only gives
+    /// up after thirty. Pinning it forever would camp the island open on
+    /// something you cannot act on, so it gets an hour: long enough to be
+    /// noticed, short enough not to become furniture. A run waiting on **you**
+    /// is exempt, because that one you can end whenever you like.
+    private let blockedLinger: TimeInterval = 3_600
 
     private var tickTask: Task<Void, Never>?
 
@@ -122,6 +130,16 @@ public final class IslandModel {
     /// exactly when the pill needs to say whose run it is showing.
     public private(set) var visibleActors: [String] = []
 
+    /// Runs parked on a person, in the same order as `relevantRuns`.
+    ///
+    /// Stored for the reason everything else here is: the menu bar item reads
+    /// it twice on every redraw and the island once per body pass, and a
+    /// computed version filtered the whole list each time.
+    public private(set) var blockedRuns: [WorkflowRun] = []
+
+    /// Runs GitHub says this account can unblock.
+    public private(set) var runsAwaitingMe: [WorkflowRun] = []
+
     /// Everything `relevantRuns` implies, in one pass.
     ///
     /// Stored for the same reason `relevantRuns` is, and the measurement that
@@ -138,6 +156,8 @@ public final class IslandModel {
             ?? relevantRuns.first
         collapsedRuns = Array(relevantRuns.prefix(collapsedRowLimit))
         visibleActors = distinctLogins()
+        blockedRuns = relevantRuns.filter(\.isBlockedOnApproval)
+        runsAwaitingMe = relevantRuns.filter(\.awaitsMyApproval)
     }
 
     private func recomputeRelevantRuns() {
@@ -145,12 +165,16 @@ public final class IslandModel {
             // Anything actually in flight, always.
             if run.isActive { return true }
 
-            // A run parked on an approval has no linger window at all. It is
-            // not finished — it is stopped, indefinitely, waiting for a person
-            // — and `action_required` carries a `finished_at` of whenever the
-            // pull request was opened, so the thirty-second rule below would
-            // have discarded it before it was ever drawn once.
-            if run.isBlockedOnApproval { return true }
+            // A run parked on an approval is not finished — it is stopped,
+            // indefinitely, waiting for a person — and `action_required`
+            // carries a `finished_at` of whenever the pull request was opened,
+            // so the thirty-second rule below would have discarded it before
+            // it was ever drawn once.
+            if run.awaitsMyApproval { return true }
+            if run.isBlockedOnApproval {
+                guard let since = run.finishedAt else { return true }
+                return now.timeIntervalSince(since) < blockedLinger
+            }
 
             guard let finished = run.finishedAt else { return false }
             let age = now.timeIntervalSince(finished)
@@ -250,16 +274,6 @@ public final class IslandModel {
         if isExpanded { return true }
         if state.error != nil { return true }
         return !relevantRuns.isEmpty
-    }
-
-    /// Runs parked on a person, worst first.
-    public var blockedRuns: [WorkflowRun] {
-        relevantRuns.filter(\.isBlockedOnApproval)
-    }
-
-    /// Runs GitHub says this account can unblock.
-    public var runsAwaitingMe: [WorkflowRun] {
-        relevantRuns.filter(\.awaitsMyApproval)
     }
 
     /// How far through its linger window the most recent finished run is, 0...1.

@@ -400,14 +400,19 @@ struct RunwayStripe: View {
                         .easeInOut(duration: 2.1).repeatForever(autoreverses: false),
                         value: sweep
                     )
+                    // Started here rather than on the parent: the flag has to
+                    // flip *after* this view exists, or the insertion and the
+                    // change land in one update and there is nothing to
+                    // animate from. Cleared on the way out so the next build
+                    // starts at the left edge instead of teleporting.
+                    .onAppear { sweep = true }
+                    .onDisappear { sweep = false }
                 }
             }
         }
         .frame(height: 1.5)
         .opacity(mood == .idle ? 0.35 : 1)
         .animation(Motion.content, value: mood)
-        .onAppear { sweep = isBusy && !reduceMotion }
-        .onChange(of: isBusy) { _, busy in sweep = busy && !reduceMotion }
         .allowsHitTesting(false)
     }
 }

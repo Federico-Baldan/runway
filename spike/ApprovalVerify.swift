@@ -113,6 +113,21 @@ enum ApprovalVerify {
         check("mine wins when several environments are pending",
               mixed.approval, .needsMe(environments: ["production"]))
 
+        // `isBlockedOnApproval` and `awaitsMyApproval` do NOT go through the
+        // verdict — they are read inside a sort comparator on every tick, and
+        // going the long way allocated two arrays per call. Two answers to one
+        // question is a bug waiting to happen, so it is pinned here.
+        print()
+        print("── the fast path agrees with the verdict it shortcuts ──")
+        for (label, sample) in [("mine", mine), ("theirs", theirs), ("gated", gated),
+                                ("building", building), ("deploying", deploying),
+                                ("mixed", mixed)] {
+            assert("\(label): isBlockedOnApproval matches the verdict",
+                   sample.isBlockedOnApproval == sample.approval.isBlocked)
+            assert("\(label): awaitsMyApproval matches the verdict",
+                   sample.awaitsMyApproval == sample.approval.deservesNotification)
+        }
+
         print()
         print("── the words the island and the banner share ──")
         assert("summary names the environment",
