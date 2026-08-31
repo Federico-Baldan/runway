@@ -23,7 +23,10 @@ public enum ApprovalNotifier {
     public static var isEnabled = true
 
     /// Key the run's URL travels under, so a click can open it.
-    static let urlKey = "runway.url"
+    ///
+    /// `nonisolated` because the click handler reads it, and the system calls a
+    /// notification delegate from its own context rather than the main actor.
+    nonisolated static let urlKey = "runway.url"
 
     /// What Notification Centre currently allows.
     public enum Authorization: Equatable, Sendable {
@@ -300,6 +303,6 @@ private final class NotificationClickHandler: NSObject, UNUserNotificationCenter
     ) async {
         let link = response.notification.request.content.userInfo[ApprovalNotifier.urlKey] as? String
         guard let link, let url = URL(string: link) else { return }
-        await MainActor.run { NSWorkspace.shared.open(url) }
+        await MainActor.run { _ = NSWorkspace.shared.open(url) }
     }
 }

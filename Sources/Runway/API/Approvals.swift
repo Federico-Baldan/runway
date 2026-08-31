@@ -146,9 +146,11 @@ public struct DeploymentReviewer: Codable, Sendable, Hashable, Identifiable {
 
         // A user carries `login`, a team `slug`, and a team that predates slugs
         // only `name`. Take whichever is there and non-empty.
+        // `try?` flattens the double optional a throwing `decodeIfPresent`
+        // would otherwise hand back, so this is one binding, not two.
         func text(_ key: ReviewerKeys) -> String? {
-            guard let decoded = try? reviewer.decodeIfPresent(String.self, forKey: key),
-                  let value = decoded, !value.isEmpty else { return nil }
+            guard let value = try? reviewer.decodeIfPresent(String.self, forKey: key),
+                  !value.isEmpty else { return nil }
             return value
         }
         name = text(.login) ?? text(.slug) ?? text(.name) ?? "someone"
