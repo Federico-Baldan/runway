@@ -51,11 +51,12 @@ public final class StatusItemController {
         }
         switch mood {
         case .idle:
-            let image = NSImage(
-                systemSymbolName: "smallcircle.filled.circle",
-                accessibilityDescription: "Runway — idle"
-            )
-            image?.isTemplate = true
+            // The one state with nothing to report is the one the mark gets to
+            // hold: at rest the item is the brand, not a status glyph. Every
+            // other case still speaks in SF Symbols, because those are saying
+            // something and the mark is not.
+            let image = BrandMark.statusItem()
+            image.accessibilityDescription = "Runway — idle"
             return image
         case .running:
             return tinted("circle.dotted", .systemBlue, template: false)
