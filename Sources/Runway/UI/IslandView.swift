@@ -15,8 +15,6 @@ struct IslandView: View {
     /// Routed through the controller so the resize is sequenced around the animation.
     var onHoverChange: (Bool) -> Void = { _ in }
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     /// True while animating out; selects the gentler exit geometry.
     private var isLeaving: Bool { model.isLeaving }
 
@@ -45,13 +43,19 @@ struct IslandView: View {
         .fixedSize(horizontal: false, vertical: true)
         .background(background)
         .clipShape(shape)
-        .overlay(alignment: .bottom) { RunwayStripe(mood: model.mood, isBusy: model.mood == .running) }
+        // No border under a cutout, at any opacity.
+        //
+        // The island's whole trick is that its black is the *same* black as the
+        // camera housing, so the two read as one object. A hairline around it —
+        // even the barely-there gradient this used to draw — is a seam right
+        // where the hardware ends, and once you see it you cannot unsee it.
+        // Off a notch there is a real window edge to describe, so the border
+        // comes back.
         .overlay(
-            shape.strokeBorder(edgeHighlight, lineWidth: 1)
+            shape.strokeBorder(Color.white.opacity(hasNotch ? 0 : 0.08), lineWidth: 1)
         )
-        .clipShape(shape)
-        .shadow(color: .black.opacity(model.isExpanded ? 0.42 : 0.24),
-                radius: model.isExpanded ? 22 : 10, y: 5)
+        .shadow(color: .black.opacity(model.isExpanded ? 0.35 : 0.2),
+                radius: model.isExpanded ? 18 : 8, y: 4)
         .scaleEffect(
             x: model.isOnScreen ? 1 : (isLeaving ? 0.97 : 0.86),
             y: model.isOnScreen ? 1 : (isLeaving ? 0.80 : 0.55),
@@ -112,13 +116,10 @@ struct IslandView: View {
 
                 if model.relevantRuns.count > 1 {
                     Text("\(model.relevantRuns.count)")
-                        .font(.system(size: 9, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.8))
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.75))
                         .monospacedDigit()
                         .contentTransition(.numericText())
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 0.5)
-                        .background(Capsule().fill(Color.white.opacity(0.12)))
                 }
             } else if model.state.error != nil {
                 Image(systemName: "exclamationmark.triangle.fill")
@@ -147,67 +148,30 @@ struct IslandView: View {
         )
     }
 
-    /// The island's ground.
+    /// The island's ground: black, and nothing else.
     ///
     /// Under a cutout it has to be *actually* black — the display's own pixels
-    /// continue the hardware — so the depth has to come from something other
-    /// than transparency: a barely-there vertical lift, and a wash of the
-    /// current mood's colour pooling at the bottom edge. Off a notch there is a
-    /// real window behind it, so the material does that work instead.
+    /// continue the hardware. There used to be a vertical lift gradient and a
+    /// wash of the current mood's colour pooling at the bottom edge on top of
+    /// that, which is two more layers than a status pill has any business
+    /// carrying: the mood is already said by every glyph on it. Off a notch the
+    /// material does the depth, the way it did before.
     private var background: some View {
         ZStack {
-            Color.black.opacity(hasNotch ? 1.0 : 0.90)
+            Color.black.opacity(hasNotch ? 1.0 : 0.92)
 
             if !hasNotch {
-                VisualEffectBackground().opacity(0.38)
+                VisualEffectBackground().opacity(0.35)
             }
-
-            LinearGradient(
-                colors: [Color.white.opacity(0.055), Color.clear],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-
-            LinearGradient(
-                colors: [Color.clear, StatusStyle.color(for: model.mood).opacity(moodWash)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .animation(Motion.content, value: model.mood)
         }
     }
 
-    /// How strongly the mood tints the island's lower edge.
-    private var moodWash: Double {
-        switch model.mood {
-        case .idle: return 0.04
-        case .approval, .error: return 0.16
-        default: return 0.10
-        }
-    }
-
-    /// A hairline that is brighter at the top than the sides, the way a real
-    /// bevel catches light.
-    private var edgeHighlight: LinearGradient {
-        LinearGradient(
-            colors: hasNotch
-                ? [Color.white.opacity(0.10), Color.white.opacity(0.02)]
-                : [Color.white.opacity(0.16), Color.white.opacity(0.04)],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-    }
-
-    /// The divider between the pill and its expansion. A `Divider()` draws a
-    /// full-bleed system line that reaches the rounded corners and cuts them.
+    /// The divider between the pill and its expansion. Inset, because a bare
+    /// `Divider()` is full-bleed and cuts across the rounded corners.
     private var hairline: some View {
-        LinearGradient(
-            colors: [Color.white.opacity(0), Color.white.opacity(0.16), Color.white.opacity(0)],
-            startPoint: .leading,
-            endPoint: .trailing
-        )
-        .frame(height: 1)
-        .padding(.horizontal, 10)
+        Divider()
+            .opacity(0.35)
+            .padding(.horizontal, 10)
     }
 
     // MARK: - Collapsed pill
@@ -285,10 +249,9 @@ struct IslandView: View {
     }
 
     private var rowSeparator: some View {
-        Rectangle()
-            .fill(Color.white.opacity(0.07))
-            .frame(height: 1)
-            .padding(.horizontal, 12)
+        Divider()
+            .opacity(0.14)
+            .padding(.horizontal, 10)
     }
 
     // MARK: - Expanded panel
@@ -329,9 +292,7 @@ struct IslandView: View {
     }
 
     private var footer: some View {
-        HStack(spacing: 7) {
-            Image(systemName: model.state.isPolling ? "antenna.radiowaves.left.and.right" : "pause.circle")
-                .font(.system(size: 8))
+        HStack(spacing: 6) {
             if let lastUpdate = model.state.lastUpdate {
                 Text("updated \(IslandFormat.duration(model.now.timeIntervalSince(lastUpdate))) ago")
                     .monospacedDigit()
@@ -346,79 +307,26 @@ struct IslandView: View {
                     .help("Requests remaining this hour. Resets in \(model.state.rateLimit.resetDescription).")
             }
             Spacer()
-            Button(action: onQuit) {
-                Text("Quit")
-                    .font(.system(size: 9, weight: .medium))
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 2)
-                    .background(Capsule().fill(Color.white.opacity(0.08)))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.white.opacity(0.55))
+            Button("Quit", action: onQuit)
+                .buttonStyle(.plain)
+                .foregroundStyle(.white.opacity(0.55))
         }
         .font(.system(size: 9))
         .foregroundStyle(.white.opacity(0.42))
-        .padding(.horizontal, 12)
-        .padding(.bottom, 8)
-    }
-}
-
-/// The light strip along the island's bottom edge.
-///
-/// The one piece of chrome that is purely for the feel of the thing, and the
-/// app's own name is the argument for it: a runway is a dark strip with lights
-/// down it. It carries the mood colour, and while something is building a
-/// brighter segment travels along it — so the island reads as *live* from the
-/// corner of your eye, at a glance too short to focus on a glyph.
-struct RunwayStripe: View {
-    let mood: IslandMood
-    var isBusy: Bool
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var sweep = false
-
-    private var tint: Color { StatusStyle.color(for: mood) }
-
-    var body: some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .leading) {
-                LinearGradient(
-                    colors: [tint.opacity(0), tint.opacity(0.55), tint.opacity(0)],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-
-                if isBusy && !reduceMotion {
-                    LinearGradient(
-                        colors: [tint.opacity(0), tint, tint.opacity(0)],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                    .frame(width: proxy.size.width * 0.32)
-                    .offset(x: sweep ? proxy.size.width * 0.84 : -proxy.size.width * 0.16)
-                    .animation(
-                        .easeInOut(duration: 2.1).repeatForever(autoreverses: false),
-                        value: sweep
-                    )
-                    // Started here rather than on the parent: the flag has to
-                    // flip *after* this view exists, or the insertion and the
-                    // change land in one update and there is nothing to
-                    // animate from. Cleared on the way out so the next build
-                    // starts at the left edge instead of teleporting.
-                    .onAppear { sweep = true }
-                    .onDisappear { sweep = false }
-                }
-            }
-        }
-        .frame(height: 1.5)
-        .opacity(mood == .idle ? 0.35 : 1)
-        .animation(Motion.content, value: mood)
-        .allowsHitTesting(false)
+        .padding(.horizontal, 10)
+        .padding(.bottom, 6)
     }
 }
 
 /// Per-run job detail, shown only when the island is expanded.
 struct JobDetail: View {
+    /// How many step dots a job draws before it starts counting instead.
+    ///
+    /// Twenty-four at 7pt plus 3pt of air is 240pt, which fits inside the
+    /// 620pt expanded island next to a 96pt job name with room left for the
+    /// running step's label.
+    static let stepDotLimit = 24
+
     let run: WorkflowRun
     var showActor: Bool = false
     var onOpen: (WorkflowRun) -> Void = { _ in }
@@ -458,28 +366,41 @@ struct JobDetail: View {
                     .foregroundStyle(.white.opacity(0.35))
             }
 
+            // One line per job: the mark, the name, the steps as dots, and the
+            // name of the step actually running.
+            //
+            // The dots used to carry a label each. On a real workflow that is
+            // twenty of them — "Set up job", "Post Run actions/create-github-app-token@1b10c78…",
+            // one line per action, SHA and all — and the expanded island became
+            // a wall of text taller than the window it hangs from, which is
+            // what a run's page on GitHub is already for. The dots keep every
+            // step's *state*, which is the part you cannot get at a glance
+            // anywhere else; the one name worth printing is the step that is
+            // running right now, and it gets printed once.
             ForEach(run.jobList) { job in
                 HStack(alignment: .center, spacing: 7) {
                     StatusGlyph(status: job.status, size: 8, blocked: job.isBlockedOnApproval)
                     Text(job.name)
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(StatusStyle.color(for: job.status).opacity(0.95))
-                        .frame(width: 74, alignment: .leading)
+                        .frame(width: 96, alignment: .leading)
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .help(job.name)
 
-                    FlowLayout(spacing: 10, lineSpacing: 3) {
-                        ForEach(job.steps) { step in
-                            HStack(spacing: 4) {
-                                StepDot(status: step.status, name: step.name, job: job.name)
-                                Text(step.name)
-                                    .font(.system(size: 10, design: .monospaced))
-                                    .foregroundStyle(step.status == .inProgress
-                                                     ? Color.white.opacity(0.92)
-                                                     : Color.white.opacity(0.55))
-                                    .lineLimit(1)
-                            }
+                    // A fixed strip, not a flow. `FlowLayout` reports whatever
+                    // width it is offered, so in an `HStack` it takes the lot
+                    // and leaves the step name beside it nothing to render in.
+                    // Capped instead: a job with sixty steps is a job whose
+                    // dots stopped being readable long before sixty.
+                    HStack(spacing: 3) {
+                        ForEach(Array(job.steps.prefix(Self.stepDotLimit))) { step in
+                            StepDot(status: step.status, name: step.name, job: job.name)
+                        }
+                        if job.steps.count > Self.stepDotLimit {
+                            Text("+\(job.steps.count - Self.stepDotLimit)")
+                                .font(.system(size: 9, design: .monospaced))
+                                .foregroundStyle(.white.opacity(0.38))
                         }
                         if job.steps.isEmpty {
                             Text("—")
@@ -487,6 +408,17 @@ struct JobDetail: View {
                                 .foregroundStyle(.white.opacity(0.3))
                         }
                     }
+                    .fixedSize()
+
+                    if let running = job.steps.first(where: { $0.status == .inProgress }) {
+                        Text(running.name)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.72))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+
+                    Spacer(minLength: 0)
                 }
             }
 
@@ -535,10 +467,7 @@ struct RunLine: View {
     var showActor: Bool = false
     let onOpen: (WorkflowRun) -> Void
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovering = false
-
-    private var accent: Color { StatusStyle.color(for: IslandModel.mood(for: run)) }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -555,13 +484,6 @@ struct RunLine: View {
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .layoutPriority(3)
-
-            if let symbol = StatusStyle.eventSymbol(for: run.event) {
-                Image(systemName: symbol)
-                    .font(.system(size: 9))
-                    .foregroundStyle(.white.opacity(0.32))
-                    .help(run.event ?? "")
-            }
 
             if let branch = run.headBranch {
                 Text(branch)
@@ -596,24 +518,13 @@ struct RunLine: View {
         }
         .padding(.horizontal, 12)
         .frame(height: 32)
-        .background(alignment: .leading) {
-            ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(Color.white.opacity(isHovering ? 0.075 : 0))
-                    .padding(.horizontal, 5)
-                // A 2pt rail in the run's own colour, revealed on hover: the
-                // row you are pointing at says what it is without a tooltip.
-                RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                    .fill(accent)
-                    .frame(width: 2.5, height: isHovering ? 18 : 0)
-                    .padding(.leading, 5)
-                    .opacity(isHovering ? 1 : 0)
-            }
-        }
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(Color.white.opacity(isHovering ? 0.07 : 0))
+                .padding(.horizontal, 5)
+        )
         .contentShape(Rectangle())
-        .onHover { hovering in
-            withAnimation(.spring(duration: 0.26, bounce: 0.2)) { isHovering = hovering }
-        }
+        .onHover { isHovering = $0 }
         .onTapGesture { onOpen(run) }
         .help(helpText)
     }

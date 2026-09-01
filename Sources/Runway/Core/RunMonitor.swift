@@ -132,6 +132,10 @@ public actor RunMonitor {
     // MARK: Discovery cache
 
     private var watched: [WatchedRepo] = []
+    /// Bumped every time the watched set is invalidated, so a poll that is
+    /// already in flight can tell that its results are for the previous
+    /// configuration and stand down instead of writing them.
+    private var configurationGeneration = 0
     private var repoListFetchedAt: Date?
     /// Repository discovery is one request and the answer barely moves, so it is
     /// re-fetched every few minutes rather than every tick.
@@ -236,6 +240,7 @@ public actor RunMonitor {
         if repoConfigChanged {
             repoListFetchedAt = nil
             watched = []
+            configurationGeneration &+= 1
         }
         // Re-apply the actor filter to what is already on screen, so a change in
         // Settings shows up immediately instead of at the next poll.
@@ -249,6 +254,7 @@ public actor RunMonitor {
         jobCache.removeAll()
         approvalCache.removeAll()
         watched = []
+        configurationGeneration &+= 1
         repoListFetchedAt = nil
         currentUser = nil
         unfilteredRuns = []
@@ -305,6 +311,10 @@ public actor RunMonitor {
     }
 
     private func pollOnce() async {
+        // Which configuration this poll belongs to. Every `await` below hands
+        // the actor to whoever else is waiting on it, and `configure(_:)` is
+        // one call away from a click in Settings.
+        let generation = configurationGeneration
         do {
             if currentUser == nil {
                 currentUser = try await client.fetchAuthenticatedUser().login
@@ -321,11 +331,24 @@ public actor RunMonitor {
             // either — silence here is what made this bug unreadable.
             var ssoBlocked: String?
 
-            for index in watched.indices {
+            // Polled off a SNAPSHOT, and the results merged back by name at the
+            // end. Never `watched[index]` across an `await`.
+            //
+            // An actor is re-entrant: every `await` below is a point where
+            // another task gets to run this actor's code, and `configure(_:)`
+            // — which the Settings window calls the instant you pick a
+            // different repository scope — sets `watched = []`. `for index in
+            // watched.indices` had already materialised the old range, so the
+            // resumption after the network call indexed an emptied array and
+            // the app died on `Index out of range`. Intermittent by nature: it
+            // needed a poll to be in flight at the moment of the change, which
+            // on a twenty-repository account is most of the time.
+            var progress = watched
+            for repoIndex in progress.indices {
                 guard !Task.isCancelled else { return }
-                guard watched[index].shouldPoll() else { continue }
+                guard progress[repoIndex].shouldPoll() else { continue }
 
-                let repo = watched[index].fullName
+                let repo = progress[repoIndex].fullName
                 let response: Conditional<WorkflowRunsPayload>
                 do {
                     // Always unfiltered. `?actor=` would narrow this
@@ -339,12 +362,12 @@ public actor RunMonitor {
                     )
                 } catch GitHubError.notFound {
                     // Renamed, deleted, or outside the token's resource owner.
-                    watched[index].hasWorkflows = false
+                    progress[repoIndex].hasWorkflows = false
                     continue
                 } catch GitHubError.forbidden {
                     // Actions disabled on this repository, or no Actions: Read
                     // for it. Either way it will never produce a run.
-                    watched[index].hasWorkflows = false
+                    progress[repoIndex].hasWorkflows = false
                     continue
                 } catch let error as GitHubError {
                     // A SAML organization refusing an unauthorized token looks
@@ -353,17 +376,25 @@ public actor RunMonitor {
                     // organization could go missing without a word. Skip the
                     // repository like any other 403, but keep the reason.
                     guard case .singleSignOnRequired = error else { throw error }
-                    watched[index].hasWorkflows = false
+                    progress[repoIndex].hasWorkflows = false
                     ssoBlocked = error.errorDescription
                     continue
                 }
 
-                watched[index].hasWorkflows = response.value.totalCount > 0
+                progress[repoIndex].hasWorkflows = response.value.totalCount > 0
                 for run in response.value.workflowRuns {
                     seenLogins.formUnion(run.logins)
                     collected.append(run)
                 }
             }
+
+            // The scope changed while this poll was in the air, so everything
+            // it collected describes a repository set the user has already
+            // moved on from. Writing it to `state` would put the old scope's
+            // runs back on the island for one cycle. Drop it; the reconfigured
+            // poll is already on its way.
+            guard generation == configurationGeneration else { return }
+            merge(polled: progress)
 
             // Job detail is fetched only for runs that survive the filter —
             // no point paying a request for a colleague's run that is about to
@@ -397,6 +428,11 @@ public actor RunMonitor {
             )
             pruneJobCache(keeping: Set(collected.map(\.identity)))
 
+            // `attachJobs` is another handful of awaits, so the same race is
+            // open across it. Checked again rather than once, because this is
+            // the write that actually reaches the island.
+            guard generation == configurationGeneration else { return }
+
             failureCount = 0
             unfilteredRuns = collected.map { detailed[$0.identity] ?? $0 }
             state.runs = visible
@@ -421,6 +457,39 @@ public actor RunMonitor {
             state.rateLimit = await client.currentRateLimit()
         }
         emitIfChanged()
+    }
+
+    /// Fold a finished poll's learned flags back into the live watch list.
+    ///
+    /// By name, never by position. The snapshot the poll worked from is by
+    /// definition out of date by the time it lands — `refreshRepositoriesIfStale`
+    /// may have re-ordered the list, or dropped a repository from it entirely —
+    /// and a positional write-back would put one repository's "has no Actions"
+    /// verdict onto another one.
+    private func merge(polled: [WatchedRepo]) {
+        watched = Self.merged(watched, polled: polled)
+    }
+
+    /// The merge itself, as a pure function of its inputs.
+    ///
+    /// Split out for the same reason `interval` is: this is the half of the
+    /// re-entrancy fix that has an answer worth asserting, and asserting it
+    /// needs neither an actor nor a network. `spike/ReentrancyVerify.swift`
+    /// runs it against the shapes the race actually produces — a shorter list,
+    /// a re-ordered one, a repository that has been dropped outright.
+    static func merged(_ live: [WatchedRepo], polled: [WatchedRepo]) -> [WatchedRepo] {
+        guard !polled.isEmpty else { return live }
+        let learned = Dictionary(
+            polled.map { ($0.fullName, $0) },
+            uniquingKeysWith: { _, latest in latest }
+        )
+        return live.map { repo in
+            guard let update = learned[repo.fullName] else { return repo }
+            var merged = repo
+            merged.hasWorkflows = update.hasWorkflows
+            merged.skippedCycles = update.skippedCycles
+            return merged
+        }
     }
 
     /// Re-discover repositories when the cached list has aged out.

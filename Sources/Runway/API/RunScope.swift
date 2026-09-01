@@ -11,6 +11,9 @@ import Foundation
 public enum RepoScope: String, Sendable, CaseIterable, Codable {
     /// The N repositories with the most recent pushes. The default.
     case recent
+    /// Repositories the account can push to but does **not** own — the work
+    /// repositories, with the personal ones left out.
+    case contributor
     /// Only repositories owned by the signed-in account.
     case mine
     /// Repositories belonging to the organizations the user picked.
@@ -21,6 +24,7 @@ public enum RepoScope: String, Sendable, CaseIterable, Codable {
     public var label: String {
         switch self {
         case .recent: return "Recently active repositories"
+        case .contributor: return "Repositories I contribute to"
         case .mine: return "My repositories only"
         case .organizations: return "Selected organizations"
         case .explicit: return "A list I choose"
@@ -31,12 +35,35 @@ public enum RepoScope: String, Sendable, CaseIterable, Codable {
         switch self {
         case .recent:
             return "The repositories you pushed to most recently, whoever owns them."
+        case .contributor:
+            return "Where you are a collaborator or an organization member, and your own "
+                + "repositories are left out. The setting for working inside a company."
         case .mine:
             return "Repositories owned by your account, personal ones included."
         case .organizations:
             return "Repositories belonging to the organizations you tick below."
         case .explicit:
             return "Only the owner/repo entries you add below. Nothing is discovered."
+        }
+    }
+
+    /// The `affiliation` value `/user/repos` is asked for, when this scope
+    /// resolves through that endpoint at all.
+    ///
+    /// GitHub's own vocabulary, and the reason `.contributor` can be exact
+    /// rather than a filter applied afterwards: `affiliation` is the union of
+    /// the terms given, so omitting `owner` omits every repository you own —
+    /// including the private ones a client-side "is the owner me?" test would
+    /// never have seen the point of fetching.
+    ///
+    /// Note that `type` may **not** be sent alongside it: GitHub answers 422
+    /// for a request carrying both, which is why nothing here uses `type`.
+    public var affiliation: String? {
+        switch self {
+        case .recent: return "owner,collaborator,organization_member"
+        case .contributor: return "collaborator,organization_member"
+        case .mine: return "owner"
+        case .organizations, .explicit: return nil
         }
     }
 }

@@ -79,19 +79,6 @@ enum StatusStyle {
         case .idle: return StatusPalette.quiet
         }
     }
-
-    /// A glyph for the event that started a run — push, PR, schedule, manual.
-    static func eventSymbol(for event: String?) -> String? {
-        switch event {
-        case "push": return "arrow.up.circle"
-        case "pull_request", "pull_request_target": return "arrow.triangle.pull"
-        case "schedule": return "clock"
-        case "workflow_dispatch": return "hand.tap"
-        case "release": return "shippingbox"
-        case "repository_dispatch", "workflow_call": return "arrow.triangle.branch"
-        default: return nil
-        }
-    }
 }
 
 // MARK: - Marks
@@ -384,7 +371,6 @@ struct ActivityRing: View {
                         style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(spin ? 270 : -90))
                 .animation(sweep, value: spin)
-                .shadow(color: colour.opacity(0.7), radius: size * 0.22)
         }
         .onAppear { spin = !reduceMotion }
     }
@@ -447,9 +433,6 @@ struct ApprovalChip: View {
     let run: WorkflowRun
     var compact: Bool = false
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var glow = false
-
     private var isMine: Bool { run.awaitsMyApproval }
 
     var body: some View {
@@ -465,23 +448,21 @@ struct ApprovalChip: View {
             .foregroundStyle(StatusPalette.approval.opacity(isMine ? 1 : 0.8))
             .padding(.horizontal, compact ? 5 : 7)
             .padding(.vertical, compact ? 1.5 : 2.5)
+            // Steady, not breathing. An approval waiting on you already gets
+            // the brighter fill, the bolder weight and a Notification Centre
+            // banner; a border pulsing forever underneath all that was the
+            // island nagging, and it kept a repeating animation alive for the
+            // hour a blocked run can sit there.
             .background(
                 Capsule()
                     .fill(StatusPalette.approval.opacity(isMine ? 0.18 : 0.10))
                     .overlay(
                         Capsule().strokeBorder(
-                            StatusPalette.approval.opacity(isMine && glow ? 0.55 : 0.22),
+                            StatusPalette.approval.opacity(isMine ? 0.45 : 0.22),
                             lineWidth: 1
                         )
                     )
             )
-            .animation(
-                reduceMotion || !isMine
-                    ? nil
-                    : .easeInOut(duration: 1.5).repeatForever(autoreverses: true),
-                value: glow
-            )
-            .onAppear { glow = isMine && !reduceMotion }
             .help(isMine
                   ? "GitHub says you can approve this. Click the row to open the run."
                   : "This run is waiting on somebody else.")
@@ -552,9 +533,6 @@ struct StepSegment: View {
     let name: String
     let job: String
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var travel = false
-
     private var isRunning: Bool { status == .inProgress }
     /// Not-yet-started work is a dim rail rather than a filled segment.
     private var isPending: Bool {
@@ -565,33 +543,24 @@ struct StepSegment: View {
     private var width: CGFloat { isRunning ? 7 : 4.5 }
 
     var body: some View {
+        // A segment says its state with colour and width, and stops there.
+        //
+        // It used to carry a white highlight travelling back and forth inside
+        // it and a coloured glow around it — per step, on every job, forever.
+        // Four jobs of twenty steps is eighty of them animating at once behind
+        // a pill you are meant to glance at, and the one thing genuinely worth
+        // seeing move — the run's own ring — was competing with all of it. The
+        // running segment is still the wide one, which is what the eye actually
+        // lands on.
         Capsule(style: .continuous)
             .fill(isPending ? Color.white.opacity(0.16) : colour.opacity(0.92))
             .frame(width: width, height: 3.5)
-            .overlay(alignment: .leading) {
-                // A highlight that runs along the segment: the one place in the
-                // island where something is genuinely moving right now.
-                if isRunning && !reduceMotion {
-                    Capsule(style: .continuous)
-                        .fill(Color.white.opacity(0.85))
-                        .frame(width: 2.5, height: 3.5)
-                        .offset(x: travel ? width - 2.5 : 0)
-                        .animation(
-                            .easeInOut(duration: 0.85).repeatForever(autoreverses: true),
-                            value: travel
-                        )
-                }
-            }
-            .clipShape(Capsule(style: .continuous))
-            .shadow(color: isPending ? .clear : colour.opacity(0.6), radius: isRunning ? 2.5 : 0)
-            .onAppear { travel = isRunning && !reduceMotion }
-            .onChange(of: isRunning) { _, running in travel = running && !reduceMotion }
             .animation(Motion.content, value: status)
             .help("\(job) › \(name): \(status.label)")
     }
 }
 
-/// One step as a dot, for the expanded panel where each has a label beside it.
+/// One step as a dot, for the expanded panel's per-job strip.
 struct StepDot: View {
     let status: RunStatus
     let name: String
@@ -616,8 +585,7 @@ struct StepDot: View {
             }
         }
         .frame(width: 7, height: 7)
-        .shadow(color: isPending ? .clear : colour.opacity(0.7), radius: isRunning || isBlocked ? 3 : 0)
-        .scaleEffect(pulse ? 1.4 : 1)
+        .scaleEffect(pulse ? 1.35 : 1)
         .opacity(pulse ? 0.5 : 1)
         .animation(pulseAnimation, value: pulse)
         .onAppear { pulse = shouldPulse }
