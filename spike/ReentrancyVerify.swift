@@ -118,7 +118,7 @@ enum ReentrancyVerify {
         assert("contributor asks for organization repositories",
                contributor.contains("organization_member"))
         assert("contributor does NOT ask for owned repositories",
-               !contributor.split(separator: ",").contains("owner"))
+               !contributor.split(separator: ",").map(String.init).contains("owner"))
         assert("mine asks for owned repositories only",
                RepoScope.mine.affiliation == "owner")
         assert("recent asks for all three",
