@@ -45,8 +45,19 @@ struct ETagStore: Sendable {
     init() {}
 
     /// The ETag to send as `If-None-Match`, if one is held.
-    func etag(for key: String) -> String? {
-        entries[key]?.etag
+    ///
+    /// Mutating, because reading the validator *is* using the entry. A 304
+    /// resolves against the body cached beside it, and the sweep runs on the
+    /// request path — so an entry read at the very edge of `maxAge` could be
+    /// evicted by another repository's request during the round trip, leaving
+    /// the 304 with nothing to resolve to. `GitHubClient` turns that into a
+    /// `.network` error, which is retryable, which means one evicted body
+    /// failed the whole poll and put every other repository behind a backoff
+    /// curve. Marking the entry fresh here closes the window outright.
+    mutating func etag(for key: String) -> String? {
+        guard let etag = entries[key]?.etag else { return nil }
+        entries[key]?.refreshedAt = Date()
+        return etag
     }
 
     /// The body cached alongside that ETag — what a 304 resolves to.

@@ -43,16 +43,19 @@ public final class IslandModel {
     /// Ticks each second so elapsed times count up between polls.
     public private(set) var now = Date()
 
-    /// The monitor's change signature for `state`, computed once per update.
+    /// The monitor's change signature for `state`.
     ///
-    /// The island animates content changes off this string, and
-    /// `MonitorState.signature` is not cheap: it walks every run, then every
-    /// job and every running step inside it, allocating and sorting arrays and
-    /// building strings as it goes. Read straight from `state` inside `body`,
-    /// SwiftUI rebuilt the whole thing on every pass — once a second at rest,
-    /// and again on every hover. `state` only ever changes in `apply(_:)`, and
-    /// the monitor has already computed this to decide whether to emit at all,
-    /// so the answer is kept rather than recomputed.
+    /// The island animates content changes off this string, and computing it is
+    /// not cheap: it walks every run, then every job and every running step
+    /// inside it, allocating and sorting arrays and building strings as it
+    /// goes. Read straight from `state` inside `body`, SwiftUI rebuilt the whole
+    /// thing on every pass — once a second at rest, and again on every hover.
+    ///
+    /// It is now computed in exactly one place, `RunMonitor.emitIfChanged`,
+    /// which had to compute it anyway to decide whether the state was worth
+    /// emitting; `MonitorState` carries the stamp across, and this keeps it for
+    /// the body passes. The comment here used to claim as much while the
+    /// property it read was still recomputing the walk on every assignment.
     public private(set) var stateSignature = ""
 
     /// Drives the enter/exit morph.
@@ -75,6 +78,12 @@ public final class IslandModel {
     private let blockedLinger: TimeInterval = 3_600
 
     private var tickTask: Task<Void, Never>?
+    /// The cadence `tickTask` is sleeping on, so `updateTicker` can tell a
+    /// no-op call from one that has to replace the task.
+    private var tickSeconds = 0
+    /// Bumped whenever the task is replaced, so a tick that wakes up from the
+    /// old cadence stands down instead of driving a second loop.
+    private var tickGeneration = 0
 
     /// Called whenever the set of runs the island draws changes — and therefore
     /// whenever the panel may need to appear or disappear.
@@ -316,43 +325,77 @@ public final class IslandModel {
         onDisplayChange?()
     }
 
-    /// Only run a 1s timer when something is actually counting, and only while
+    /// How often the island has to re-derive itself, in seconds.
+    ///
+    /// A second is the right answer only while something on screen is actually
+    /// moving: a live elapsed counter, or a finished run fading out through its
+    /// linger window. A run parked on an approval does neither — `settleProgress`
+    /// returns 0 for as long as one is on screen, and its own label does not
+    /// count anything — yet `blockedLinger` keeps it there for a full hour. That
+    /// was 3,600 wakeups for a pill that never changed a pixel, each one a
+    /// filter, a sort and a complete re-derive, with a status-item redraw and a
+    /// panel sync behind it. Something waiting on a person is precisely the
+    /// state the island is *most* likely to be sitting in for a long time, so it
+    /// was also the worst case.
+    ///
+    /// Fifteen seconds is well inside the hour it is aging against, and any run
+    /// that starts moving replaces the task rather than waiting for the slow
+    /// tick to notice.
+    private static func tickSeconds(for runs: [WorkflowRun]) -> Int {
+        runs.contains { $0.isActive || !$0.isBlockedOnApproval } ? 1 : 15
+    }
+
+    /// Only run a timer when something is actually counting, and only while
     /// there is someone to count for.
     private func updateTicker() {
-        let needsTicker = !relevantRuns.isEmpty && !isSuspended
-        if needsTicker {
-            guard tickTask == nil else { return }
-            tickTask = Task { [weak self] in
-                while !Task.isCancelled {
-                    // 100 ms of tolerance on a 1 s tick — Apple's guideline is at
-                    // least 10% for a repeating timer — lets macOS coalesce this
-                    // wakeup with others already scheduled nearby instead of
-                    // bringing the CPU out of idle on its own. A tenth of a second
-                    // is invisible on a counter that renders whole seconds.
-                    do {
-                        try await Task.sleep(for: .seconds(1), tolerance: .milliseconds(100))
-                    } catch {
-                        return // cancelled
-                    }
-                    guard let self else { return }
-                    self.now = Date()
-                    self.recomputeDerivedState()
-                    self.onDisplayChange?()
-                    if self.relevantRuns.isEmpty {
-                        self.stopTicker()
-                        return
-                    }
-                }
-            }
-        } else {
+        guard !relevantRuns.isEmpty, !isSuspended else {
             now = Date()
             stopTicker()
+            return
+        }
+
+        let seconds = Self.tickSeconds(for: relevantRuns)
+        // Already ticking at the right cadence: leave the task alone rather
+        // than restarting it, which would reset the phase of a counter
+        // somebody is watching on every poll.
+        guard tickTask == nil || seconds != tickSeconds else { return }
+
+        tickTask?.cancel()
+        tickSeconds = seconds
+        tickGeneration &+= 1
+        let generation = tickGeneration
+
+        tickTask = Task { [weak self] in
+            while !Task.isCancelled {
+                // 100 ms of tolerance — Apple's guideline is at least 10% for a
+                // repeating timer — lets macOS coalesce this wakeup with others
+                // already scheduled nearby instead of bringing the CPU out of
+                // idle on its own. A tenth of a second is invisible on a
+                // counter that renders whole seconds.
+                do {
+                    try await Task.sleep(for: .seconds(seconds), tolerance: .milliseconds(100))
+                } catch {
+                    return // cancelled
+                }
+                guard let self, self.tickGeneration == generation else { return }
+                self.now = Date()
+                self.recomputeDerivedState()
+                self.onDisplayChange?()
+                // Aging a run out can empty the island, and a run that has
+                // started moving needs the fast cadence back. `updateTicker`
+                // owns both decisions and replaces this task when it changes
+                // its mind — the generation check above is what stands the old
+                // one down.
+                self.updateTicker()
+            }
         }
     }
 
     private func stopTicker() {
         tickTask?.cancel()
         tickTask = nil
+        tickSeconds = 0
+        tickGeneration &+= 1
     }
 }
 

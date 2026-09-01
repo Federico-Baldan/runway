@@ -161,9 +161,21 @@ public enum ApprovalNotifier {
         let live = Set(runs.map(\.identity))
         let stale = announced.filter { key in
             guard let identity = key.split(separator: "|").first.map(String.init) else { return true }
-            // Keep the record while the run is still blocked; drop it once the
-            // run has been approved, finished, or scrolled out of the window.
-            return !blocked.contains(identity) && live.contains(identity)
+            // Still blocked: keep the record, or the next poll announces it
+            // all over again.
+            if blocked.contains(identity) { return false }
+            // On screen and no longer blocked: approved, cancelled, or moved
+            // on. Nothing left to say about it.
+            if live.contains(identity) { return true }
+            // Gone from the window entirely. Kept while there is room, because
+            // a run can drop out of `deploymentsAwaitingMe`'s five-run cap for
+            // a poll and come straight back, and announcing again on every
+            // flap is exactly the noise this record exists to prevent. Past
+            // the cap it is the first thing to go: a record for a run nobody
+            // can see is worth less than one for a run still blocked on
+            // screen, and the blind lexicographic trim below would otherwise
+            // have dropped either with equal enthusiasm.
+            return announced.count > announcedLimit
         }
         if !stale.isEmpty {
             announced.subtract(stale)
@@ -172,14 +184,19 @@ public enum ApprovalNotifier {
 
         guard isEnabled else { return }
 
+        // One write at the end rather than one per announcement: this runs on
+        // every monitor update, and `persistAnnounced` sorts the whole set on
+        // its way to `UserDefaults`.
+        var added = false
         for run in runs {
             guard case .needsMe(let environments) = run.approval else { continue }
             let key = "\(run.identity)|\(environments.sorted().joined(separator: ","))"
             guard !announced.contains(key) else { continue }
             announced.insert(key)
-            persistAnnounced()
+            added = true
             post(key: key, for: run, environments: environments)
         }
+        if added { persistAnnounced() }
     }
 
     /// Forget everything. Runs on a token change: a different account has a

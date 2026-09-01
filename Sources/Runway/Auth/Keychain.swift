@@ -150,12 +150,31 @@ public final class TokenCache: @unchecked Sendable {
     private init() {}
 
     /// When true, the keychain is never touched and `token()` returns nil.
-    public var isDisabled = false
+    ///
+    /// Behind the same lock as `cached`. It was a bare `var` on an
+    /// `@unchecked Sendable` class — read inside the lock, written outside it,
+    /// from the main actor, while `GitHubClient`'s token provider reads it from
+    /// whatever thread the poll happens to be on. `@unchecked` is exactly the
+    /// annotation that stops the compiler pointing that out.
+    private var disabled = false
+
+    public var isDisabled: Bool {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return disabled
+        }
+        set {
+            lock.lock()
+            disabled = newValue
+            lock.unlock()
+        }
+    }
 
     public func token() -> String? {
         lock.lock()
         defer { lock.unlock() }
-        if isDisabled { return nil }
+        if disabled { return nil }
         if let cached { return cached }
         let value = Keychain.load()
         cached = value

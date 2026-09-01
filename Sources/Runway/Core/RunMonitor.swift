@@ -29,16 +29,48 @@ public struct MonitorState: Sendable, Equatable {
         self.isPolling = isPolling
         self.rateLimit = rateLimit
         self.knownActors = knownActors
+        restamp()
     }
 
     public var activeRuns: [WorkflowRun] { runs.filter(\.isActive) }
     public var failedRuns: [WorkflowRun] { runs.filter { $0.status.isFailure } }
     public var hasActiveRun: Bool { runs.contains(where: \.isActive) }
 
-    /// Combined change signature. The monitor only emits when this differs.
-    public var signature: String {
+    /// Combined change signature over the runs and the error — everything whose
+    /// *shape* on the island can change.
+    ///
+    /// Stored rather than computed, because it is not cheap: it walks every
+    /// run, then every job and every running step inside it, sorting and
+    /// joining as it goes. Two places need the same answer for the same
+    /// snapshot — the monitor, to decide whether the state is worth emitting,
+    /// and `IslandModel`, to animate content changes off it — and both used to
+    /// compute it separately, so every poll paid for the walk twice.
+    public private(set) var signature = ""
+
+    /// Recompute `signature` after `runs` or `error` were changed in place.
+    public mutating func restamp() {
         let body = runs.map(\.signature).sorted().joined(separator: ";")
-        return "\(body)|err:\(error ?? "")"
+        signature = "\(body)|err:\(error ?? "")"
+    }
+
+    /// Everything a consumer *draws*, which is wider than what the island
+    /// animates off.
+    ///
+    /// The island keys its content animation on `signature` alone, and rightly
+    /// so — nothing else moves the pill. But the menu bar prints the repository
+    /// count, and Settings prints the rate-limit budget, the cache hit rate and
+    /// the list of logins the actor picker suggests. None of those moves a run
+    /// signature, so gating the emit on `signature` froze all of them for as
+    /// long as the run set held still — which, on an account with nothing
+    /// building, is nearly always.
+    ///
+    /// `lastUpdate` is deliberately left out: it moves on every single poll and
+    /// would defeat the gate entirely. `rateLimit.remaining` is the right proxy
+    /// for "this poll actually cost something", since a 304 does not decrement
+    /// it — so a fully cached poll still emits nothing.
+    var emitSignature: String {
+        "\(signature)|repos:\(repositories.count)|actors:\(knownActors.count)"
+            + "|rate:\(rateLimit.remaining)/\(rateLimit.limit)|polling:\(isPolling)"
     }
 }
 
@@ -351,7 +383,18 @@ public actor RunMonitor {
             let visible = detailedRuns.filter {
                 mineIdentities.contains($0.identity) || $0.awaitsMyApproval
             }
-            let detailed = Dictionary(uniqueKeysWithValues: detailedRuns.map { ($0.identity, $0) })
+            // `uniquingKeysWith` rather than `uniqueKeysWithValues`, which
+            // *traps* on a repeated key. Two watched entries naming the same
+            // repository — `RUNWAY_REPOS="a/b,a/b"` is enough, the environment
+            // list is not de-duplicated — put every one of that repo's runs in
+            // `collected` twice, and the app died on its first poll. `watched`
+            // is de-duplicated below as well; this is the belt to that braces,
+            // because the keys are ultimately GitHub's data and a crash is a
+            // bad way to find out it surprised us.
+            let detailed = Dictionary(
+                detailedRuns.map { ($0.identity, $0) },
+                uniquingKeysWith: { _, latest in latest }
+            )
             pruneJobCache(keeping: Set(collected.map(\.identity)))
 
             failureCount = 0
@@ -375,6 +418,7 @@ public actor RunMonitor {
         } catch {
             failureCount += 1
             state.error = error.localizedDescription
+            state.rateLimit = await client.currentRateLimit()
         }
         emitIfChanged()
     }
@@ -396,9 +440,19 @@ public actor RunMonitor {
 
         // Carry the learned `hasWorkflows` flag across a refresh, so a repo that
         // was demoted for having no Actions is not promoted back every 5 minutes.
-        let previous = Dictionary(uniqueKeysWithValues: watched.map { ($0.fullName, $0) })
-        watched = repositories.map { repository in
-            previous[repository.fullName]
+        let previous = Dictionary(
+            watched.map { ($0.fullName, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        // De-duplicated on the way in. A repository listed twice is not an
+        // error worth refusing the poll over, but polling it twice is a wasted
+        // request per cycle and — until this — a trap on the duplicate run
+        // identities it produced. `.explicit` takes the list verbatim from
+        // Settings or `RUNWAY_REPOS`, neither of which de-duplicates.
+        var seen = Set<String>()
+        watched = repositories.compactMap { repository in
+            guard seen.insert(repository.fullName).inserted else { return nil }
+            return previous[repository.fullName]
                 ?? WatchedRepo(fullName: repository.fullName)
         }
         repoListFetchedAt = Date()
@@ -586,7 +640,10 @@ public actor RunMonitor {
 
     /// Dedupe gate: observers only wake when the signature actually moved.
     private func emitIfChanged(force: Bool = false) {
-        let signature = state.signature
+        // The one place the signature is computed. Everything downstream reads
+        // the stamp rather than walking the runs again.
+        state.restamp()
+        let signature = state.emitSignature
         guard force || signature != lastSignature else { return }
         lastSignature = signature
 

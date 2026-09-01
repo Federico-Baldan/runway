@@ -16,6 +16,13 @@ public final class StatusItemController {
     /// Approvals move without the mood or the run count moving — a run going
     /// from "waiting on Alice" to "waiting on you" changes neither.
     private var lastApprovals: Int = -1
+    /// So does the scope line. `rebuildMenu` prints how many repositories are
+    /// watched and, on a failure, the error itself — and a repository list that
+    /// grows on its five-minute refresh, or an error whose *text* changes while
+    /// the mood stays `.error`, moves neither the mood nor the run count. The
+    /// menu simply kept showing the old sentence.
+    private var lastRepositoryCount: Int = -1
+    private var lastError: String?
 
     public init(
         model: IslandModel,
@@ -243,12 +250,17 @@ public final class StatusItemController {
         let count = model.relevantRuns.count
         let update = UpdateCheck.availableVersion
         let approvals = model.runsAwaitingMe.count
+        let repositories = model.state.repositories.count
+        let error = model.state.error
         guard mood != lastMood || count != lastCount || update != lastUpdate
-                || approvals != lastApprovals else { return }
+                || approvals != lastApprovals || repositories != lastRepositoryCount
+                || error != lastError else { return }
         lastUpdate = update
         lastMood = mood
         lastCount = count
         lastApprovals = approvals
+        lastRepositoryCount = repositories
+        lastError = error
 
         if let button = statusItem.button {
             button.image = Self.symbol(for: mood, hasToken: TokenCache.shared.token() != nil)
