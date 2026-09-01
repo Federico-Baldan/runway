@@ -287,14 +287,11 @@ public actor GitHubClient {
                 .filter { $0.contains("/") }
                 .map { Repository(fullName: $0) }
 
-        case .recent:
-            return try await userRepositories(
-                affiliation: "owner,collaborator,organization_member",
-                limit: limit
-            )
-
-        case .mine:
-            return try await userRepositories(affiliation: "owner", limit: limit)
+        case .recent, .contributor, .mine:
+            // The three scopes that are one `/user/repos` request apart, told
+            // apart by `affiliation` alone — see `RepoScope.affiliation`.
+            guard let affiliation = scope.affiliation else { return [] }
+            return try await userRepositories(affiliation: affiliation, limit: limit)
 
         case .organizations:
             guard !organizations.isEmpty else { return [] }

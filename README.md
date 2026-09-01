@@ -195,9 +195,24 @@ answered the whole question.
 
 **Recently active** (the default) asks GitHub for your repositories sorted by
 last push and takes the top 20. That covers the real case — you are working in
-two or three repos — without spending a request per cycle on the long tail. The
-other options are your own repositories, selected organizations, or a list you
-type yourself.
+two or three repos — without spending a request per cycle on the long tail.
+
+| Option | What you get |
+|---|---|
+| **Recently active** | Your most recently pushed repositories, whoever owns them. The default. |
+| **I contribute to** | Where you are a collaborator or an org member, with your own repositories left out. |
+| **My repositories only** | Repositories your account owns, personal ones included. |
+| **Selected organizations** | Everything under the orgs you tick. |
+| **A list I choose** | Exactly the `owner/repo` entries you type. Nothing is discovered. |
+
+**Repositories I contribute to** is the setting for working inside a company.
+Being in an org means the default sweeps up your side projects alongside the
+one repo you are on call for, and "my repositories only" is the opposite
+mistake. It resolves to GitHub's own `affiliation=collaborator,organization_member`,
+so the exclusion happens server-side: the repositories you own are never
+fetched, rather than fetched and then filtered out. That matters for the ones
+you own privately, which a client-side test would have paid a request to
+discover and then thrown away.
 
 The count is a dial in Settings. It is the one knob that trades responsiveness
 for API budget.
@@ -280,7 +295,7 @@ Settings.
 |---|---|
 | `RUNWAY_ACTOR_MODE` | `me`, `everyone`, `list` |
 | `RUNWAY_ACTORS` | `@me,alice,bob` |
-| `RUNWAY_REPO_SCOPE` | `recent`, `mine`, `organizations`, `explicit` |
+| `RUNWAY_REPO_SCOPE` | `recent`, `contributor`, `mine`, `organizations`, `explicit` |
 | `RUNWAY_REPOS` | `acme/web,acme/api` |
 | `RUNWAY_REPO_LIMIT` | `10` |
 | `RUNWAY_ORGS` | `acme,acme-labs` |
