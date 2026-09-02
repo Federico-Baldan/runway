@@ -21,6 +21,29 @@ jobs:
           swift --version
           xcodebuild -version
 
+      # A tag says which version this is; Resources/Info.plist says which
+      # version the app will *report*. `scripts/release.sh` bumps the plist and
+      # tags in one go, so they agree — but a tag pushed by hand skips it, and
+      # nothing downstream notices: the zip builds, the release publishes, the
+      # formula bumps, and the shipped app quietly claims the previous version.
+      # It is not cosmetic. UpdateCheck compares CFBundleShortVersionString
+      # against the newest release, so a stale plist makes every install
+      # announce an update to the version it is already running, forever.
+      #
+      # v0.4.0 shipped exactly that. Fail the tag instead.
+      - name: Tag and Info.plist agree on the version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME#v}"
+          PLIST="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)"
+          echo "tag=$TAG  Info.plist=$PLIST"
+          if [ "$TAG" != "$PLIST" ]; then
+            echo "::error::Tag v${TAG} does not match CFBundleShortVersionString ${PLIST}."
+            echo "::error::Cut releases with 'scripts/release.sh ${TAG}', which bumps the plist and tags together."
+            exit 1
+          fi
+
       - name: Build
         run: swift build
 
