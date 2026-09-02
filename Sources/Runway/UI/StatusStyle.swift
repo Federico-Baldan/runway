@@ -508,7 +508,9 @@ struct EnvironmentChip: View {
     }
 
     let target: DeployTarget
-    var size: Size = .regular
+    /// Every call site passes one; the default is the run-row size because
+    /// that is where all but one of them are.
+    var size: Size = .compact
 
     private var colour: Color { StatusPalette.environment(target.tier) }
 
