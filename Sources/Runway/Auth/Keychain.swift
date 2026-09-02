@@ -124,18 +124,43 @@ public enum Keychain {
         }
     }
 
+    /// What kind of credential a token's prefix identifies.
+    ///
+    /// The prefixes are GitHub's own, from the credential types reference:
+    /// <https://docs.github.com/en/organizations/managing-programmatic-access-to-your-organization/github-credential-types>
+    ///
+    /// This started life as a label to print in Settings, and is now load
+    /// bearing: classic and fine-grained tokens differ in what whole
+    /// *endpoints* will do for them, not merely in permissions, so telling
+    /// someone why a list is empty means knowing which they hold.
+    public enum Kind: String, Sendable, CaseIterable {
+        case fineGrained = "github_pat_"
+        case classic = "ghp_"
+        case oauth = "gho_"
+        case appInstallation = "ghs_"
+
+        public var label: String {
+            switch self {
+            case .fineGrained: return "fine-grained personal access token"
+            case .classic: return "classic personal access token"
+            case .oauth: return "OAuth token"
+            case .appInstallation: return "GitHub App installation token"
+            }
+        }
+    }
+
     /// What kind of token this looks like, purely from its prefix.
     ///
-    /// Only ever used to warn in Settings — the API is the real authority on
-    /// whether a token works, and a token of an unrecognised shape is still
-    /// accepted and tried.
-    public static func describe(_ token: String) -> String? {
+    /// A hint, never a gate — the API is the real authority on whether a token
+    /// works, and a token of an unrecognised shape is still accepted and tried.
+    public static func kind(of token: String) -> Kind? {
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.hasPrefix("github_pat_") { return "fine-grained personal access token" }
-        if trimmed.hasPrefix("ghp_") { return "classic personal access token" }
-        if trimmed.hasPrefix("gho_") { return "OAuth token" }
-        if trimmed.hasPrefix("ghs_") { return "GitHub App installation token" }
-        return nil
+        return Kind.allCases.first { trimmed.hasPrefix($0.rawValue) }
+    }
+
+    /// The human-readable name for `kind(of:)`.
+    public static func describe(_ token: String) -> String? {
+        kind(of: token)?.label
     }
 }
 
