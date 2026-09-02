@@ -113,6 +113,12 @@ enum Diagnostics {
             print("  filtered locally from the 30 most recent runs per repository")
             print("  (GitHub's ?actor= is not used: it matches the push author, so it")
             print("   cannot see a run somebody else pushed and you re-ran)")
+            if preferences.approvalsFromOthers {
+                print("  + deploys waiting on YOUR approval are let through the filter")
+                print("    (inside an org a reviewing team makes that most of them)")
+            } else {
+                print("  + nothing else, others' deploys awaiting your approval included")
+            }
         }
         if preferences.currentUser == nil {
             print("  !! login not resolved yet, so @me matches nothing until the token is verified")

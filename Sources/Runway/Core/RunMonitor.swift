@@ -126,6 +126,10 @@ public actor RunMonitor {
     private var selectedOrganizations: Set<String> = []
     private var explicitRepositories: [String] = []
     private var actorScope: ActorScope = .me
+    /// Let a colleague's deploy through the actor filter when it is parked on
+    /// this account's review. Off unless the user asks for it — see
+    /// `Preferences.approvalsFromOthers`.
+    private var includeApprovalsFromOthers = false
     private var watchedActors: [String] = []
     private var currentUser: String?
 
@@ -222,6 +226,7 @@ public actor RunMonitor {
         explicitRepositories: [String],
         actorScope: ActorScope,
         watchedActors: [String],
+        approvalsFromOthers: Bool,
         currentUser: String?
     ) {
         let repoConfigChanged = repoScope != self.repoScope
@@ -235,6 +240,7 @@ public actor RunMonitor {
         self.explicitRepositories = explicitRepositories
         self.actorScope = actorScope
         self.watchedActors = watchedActors
+        self.includeApprovalsFromOthers = approvalsFromOthers
         if let currentUser { self.currentUser = currentUser }
 
         if repoConfigChanged {
@@ -242,9 +248,21 @@ public actor RunMonitor {
             watched = []
             configurationGeneration &+= 1
         }
-        // Re-apply the actor filter to what is already on screen, so a change in
-        // Settings shows up immediately instead of at the next poll.
-        state.runs = activeFilter.apply(unfilteredRuns)
+        // Re-apply to what is already on screen, so a change in Settings shows
+        // up immediately instead of at the next poll. Through `visibleRuns` and
+        // not `activeFilter.apply` alone: the approval opt-in is part of what
+        // "visible" means, and a toggle that did nothing until the next poll
+        // would read as a toggle that does not work.
+        //
+        // Turning it *off* is exact — those runs are simply dropped. Turning it
+        // *on* can only surface the ones already known to be awaiting this
+        // account, since a poll with the setting off never asked for anybody
+        // else's pending deployments. The next poll fills the rest in.
+        state.runs = Self.visibleRuns(
+            from: unfilteredRuns,
+            filter: activeFilter,
+            approvalsFromOthers: includeApprovalsFromOthers
+        )
         emitIfChanged()
     }
 
@@ -322,6 +340,12 @@ public actor RunMonitor {
             try await refreshRepositoriesIfStale()
 
             let filter = activeFilter
+            // Snapshotted beside the filter, not read at the point of use.
+            // Both describe one configuration, and `configure(_:)` can land on
+            // this actor at any `await` below — reading one live and the other
+            // from a snapshot would let a poll fetch under the new setting and
+            // decide under the old one.
+            let approvalsFromOthers = includeApprovalsFromOthers
 
             var collected: [WorkflowRun] = []
             var seenLogins = Set<String>()
@@ -402,18 +426,17 @@ public actor RunMonitor {
             // filter in Settings takes effect immediately rather than at the
             // next poll; those runs simply arrive without detail until then.
             //
-            // Plus the runs the filter would drop that are nonetheless waiting
-            // on *this* account — see `deploymentsAwaitingMe`.
+            // Plus, only when the user has asked for it, the runs the filter
+            // would drop that are nonetheless waiting on *this* account — see
+            // `deploymentsAwaitingMe`.
             let mine = filter.apply(collected)
             let mineIdentities = Set(mine.map(\.identity))
-            let candidates = Self.deploymentsAwaitingMe(in: collected, excluding: mineIdentities)
+            let candidates = Self.deploymentsAwaitingMe(
+                in: collected,
+                excluding: mineIdentities,
+                enabled: approvalsFromOthers
+            )
             let detailedRuns = try await attachJobs(to: mine + candidates)
-            // A candidate only earns its place if GitHub actually named this
-            // account as able to approve it. The rest were a request each and
-            // are dropped here rather than shown as somebody else's problem.
-            let visible = detailedRuns.filter {
-                mineIdentities.contains($0.identity) || $0.awaitsMyApproval
-            }
             // `uniquingKeysWith` rather than `uniqueKeysWithValues`, which
             // *traps* on a repeated key. Two watched entries naming the same
             // repository — `RUNWAY_REPOS="a/b,a/b"` is enough, the environment
@@ -435,7 +458,16 @@ public actor RunMonitor {
 
             failureCount = 0
             unfilteredRuns = collected.map { detailed[$0.identity] ?? $0 }
-            state.runs = visible
+            // Decided against the settings as they are *now*, not against the
+            // snapshot this poll fetched under. A poll is seconds long and a
+            // click in Settings is instant; writing the snapshot's answer here
+            // would put the old scope's runs back for one cycle, which is the
+            // flicker `generation` exists to prevent one level up.
+            state.runs = Self.visibleRuns(
+                from: unfilteredRuns,
+                filter: activeFilter,
+                approvalsFromOthers: includeApprovalsFromOthers
+            )
             state.repositories = watched.map(\.fullName)
             state.knownActors = seenLogins.sorted { $0.lowercased() < $1.lowercased() }
             state.rateLimit = await client.currentRateLimit()
@@ -544,14 +576,44 @@ public actor RunMonitor {
         return now.timeIntervalSince(finishedAt) < 120
     }
 
+    /// What the island should show, out of everything the poll knows about.
+    ///
+    /// One function so `configure(_:)`'s immediate re-apply and the end of a
+    /// poll can never disagree about what the settings mean — they used to,
+    /// and the visible symptom was a colleague's approval that appeared on a
+    /// poll and vanished the next time any unrelated setting was touched.
+    ///
+    /// A candidate only earns its place if GitHub actually named this account
+    /// as able to approve it: `deploymentsAwaitingMe` fetches on the weaker
+    /// test — `status == .waiting` is all that is known before the request —
+    /// and the ones that come back addressed to somebody else are dropped here
+    /// rather than shown as another person's problem.
+    static func visibleRuns(
+        from runs: [WorkflowRun],
+        filter: ActorFilter,
+        approvalsFromOthers: Bool
+    ) -> [WorkflowRun] {
+        guard !filter.isEveryone else { return runs }
+        let mine = filter.apply(runs)
+        guard approvalsFromOthers else { return mine }
+        let mineIdentities = Set(mine.map(\.identity))
+        return mine + runs.filter {
+            !mineIdentities.contains($0.identity) && $0.awaitsMyApproval
+        }
+    }
+
     /// Runs the "whose runs" filter would hide that are nonetheless waiting on
     /// this account to approve them.
     ///
-    /// The filter answers *whose work is this*, and for a colleague's deploy
-    /// parked on you that is the wrong question — you are the one holding it
-    /// up. It is the same argument the actor filter already makes for re-runs:
-    /// re-running somebody else's failed deploy puts it on your island because
-    /// you are now the one waiting on it. This is that, one step further.
+    /// **Opt-in, and off by default.** The argument for it is that the filter
+    /// answers *whose work is this*, and for a colleague's deploy parked on you
+    /// that is the wrong question — you are the one holding it up. That reads
+    /// well on a two-person repository and falls apart inside a company: an
+    /// environment guarded by a team you belong to makes GitHub answer
+    /// `current_user_can_approve: true` for *everybody's* deploy, so "Only my
+    /// runs" filled with colleagues' pipelines and there was no setting that
+    /// would stop it. A filter the app overrules is not a filter, so this now
+    /// happens only when `Preferences.approvalsFromOthers` says so.
     ///
     /// Restricted to `status == .waiting`, which is the only shape that can
     /// ever answer `current_user_can_approve`. A first-time contributor gate
@@ -563,9 +625,11 @@ public actor RunMonitor {
     static func deploymentsAwaitingMe(
         in runs: [WorkflowRun],
         excluding identities: Set<String>,
+        enabled: Bool,
         limit: Int = 5
     ) -> [WorkflowRun] {
-        runs
+        guard enabled else { return [] }
+        return runs
             .filter { $0.status == .waiting && !identities.contains($0.identity) }
             .prefix(limit)
             .map { $0 }

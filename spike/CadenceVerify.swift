@@ -119,10 +119,12 @@ enum CadenceVerify {
         }
 
         print()
-        print("── an approval addressed to you outranks the \"whose runs\" filter ──")
-        // A colleague's deploy parked on YOUR review is not their run any more
-        // in the only sense that matters: you are the one holding it up. The
-        // filter would drop it, so the monitor picks it back up — but only for
+        print("── an approval addressed to you may outrank the \"whose runs\" filter ──")
+        // Only when the user asks for it. A colleague's deploy parked on YOUR
+        // review is arguably not their run any more — you are the one holding
+        // it up — but inside a company a reviewing team makes that true of
+        // every deploy, so it is opt-in. When it is on the monitor picks the
+        // dropped runs back up — but only for
         // `waiting`, the one status that can answer current_user_can_approve,
         // and only a few, because a queue of deploys behind one reviewer must
         // not turn into a request storm.
@@ -134,7 +136,7 @@ enum CadenceVerify {
             run(4, .actionRequired), run(5, .waiting), run(6, .success),
             run(7, .waiting), run(8, .waiting), run(9, .waiting), run(10, .waiting),
         ]
-        let picked = RunMonitor.deploymentsAwaitingMe(in: pool, excluding: [])
+        let picked = RunMonitor.deploymentsAwaitingMe(in: pool, excluding: [], enabled: true)
         assert("only waiting runs are candidates",
                picked.allSatisfy { $0.status == .waiting })
         assert("a first-time-contributor gate is not a candidate — it has no reviewers",
@@ -143,8 +145,58 @@ enum CadenceVerify {
                picked.count == 5)
         assert("runs the filter already kept are not fetched twice",
                RunMonitor.deploymentsAwaitingMe(
-                   in: pool, excluding: Set(pool.map(\.identity))
+                   in: pool, excluding: Set(pool.map(\.identity)), enabled: true
                ).isEmpty)
+        // The default. Inside an organization every colleague's deploy answers
+        // current_user_can_approve, so an ungated version turned "Only my runs"
+        // into everybody's runs.
+        assert("off by default, the filter is absolute",
+               RunMonitor.deploymentsAwaitingMe(
+                   in: pool, excluding: [], enabled: false
+               ).isEmpty)
+
+        print()
+        print("── and the one decision the island is drawn from ──")
+        // `visibleRuns` is the single place both a poll and a settings change
+        // go through. Two paths deciding this separately is how a colleague's
+        // approval used to appear on one poll and vanish the moment any
+        // unrelated setting was touched.
+        func pending(_ canApprove: Bool) -> [PendingDeployment] {
+            [PendingDeployment(
+                environment: .init(id: 1, name: "production"),
+                currentUserCanApprove: canApprove
+            )]
+        }
+        func by(_ login: String, _ id: Int, waiting on: [PendingDeployment] = []) -> WorkflowRun {
+            WorkflowRun(
+                id: id,
+                status: .waiting,
+                actor: GitHubActor(login: login),
+                repository: "acme/api",
+                pendingDeployments: on
+            )
+        }
+        let onlyMe = ActorFilter(logins: ["you"])
+        let mixed = [
+            by("you", 100),
+            by("alice", 101, waiting: pending(true)),   // parked on YOUR review
+            by("alice", 102, waiting: pending(false)),  // parked on somebody else's
+        ]
+        assert("off: only my runs, whoever the approval is addressed to",
+               RunMonitor.visibleRuns(from: mixed, filter: onlyMe, approvalsFromOthers: false)
+                   .map(\.id) == [100])
+        assert("on: mine, plus the one addressed to me, never the other",
+               RunMonitor.visibleRuns(from: mixed, filter: onlyMe, approvalsFromOthers: true)
+                   .map(\.id).sorted() == [100, 101])
+        assert("everyone: the opt-in changes nothing — nothing was hidden",
+               RunMonitor.visibleRuns(from: mixed, filter: .everyone, approvalsFromOthers: false)
+                   .count == mixed.count)
+        assert("no run is shown twice when it is both mine and awaiting me",
+               RunMonitor.visibleRuns(
+                   from: [by("you", 200, waiting: pending(true))],
+                   filter: onlyMe,
+                   approvalsFromOthers: true
+               ).count == 1)
 
         print()
         print("── a run waiting on a person still earns its job detail ──")

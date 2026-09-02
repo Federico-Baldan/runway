@@ -171,6 +171,30 @@ struct SettingsView: View {
                     .padding(.leading, 24)
                     .padding(.top, 4)
             }
+
+            // Only meaningful while something is being filtered out.
+            if preferences.actorScope != .everyone {
+                Divider().padding(.vertical, 2)
+                HStack(alignment: .top) {
+                    Toggle(isOn: $preferences.approvalsFromOthers) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Let deploys waiting on my approval through anyway")
+                                .font(.system(size: 12, weight: .medium))
+                            markdown("Off, so the choice above is absolute. On, a colleague's "
+                                     + "deploy joins the island when GitHub says **you** can "
+                                     + "approve it. Inside an organization that is usually "
+                                     + "every deploy: if you are in a reviewing team, GitHub "
+                                     + "names you on everybody's.")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .toggleStyle(.switch)
+                    Spacer(minLength: 6)
+                    overrideBadge(EnvironmentDefault.approvalsFromOthers)
+                }
+            }
         }
     }
 
@@ -274,9 +298,13 @@ struct SettingsView: View {
             return "No filter is applied — every run in the watched repositories will show."
         }
         let names = filter.logins.sorted().joined(separator: ", ")
+        let approvals = preferences.approvalsFromOthers
+            ? " Deploys waiting on your approval are let through as well, whoever pushed them."
+            : " Nothing else is shown, a colleague's deploy waiting on your approval included."
         return "Watching \(names). Runway reads the 30 most recent runs per repository and "
             + "keeps the ones these people pushed or re-ran. GitHub's own ?actor= filter is not "
-            + "used: it matches the push author, so it cannot see a run you re-ran for someone else."
+            + "used: it matches the push author, so it cannot see a run you re-ran for someone "
+            + "else." + approvals
     }
 
     private func addActor() {

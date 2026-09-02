@@ -29,11 +29,12 @@ public enum EnvironmentDefault {
     public static let organizations = "RUNWAY_ORGS"
     public static let host = "RUNWAY_HOST"
     public static let notifyApprovals = "RUNWAY_NOTIFY_APPROVALS"
+    public static let approvalsFromOthers = "RUNWAY_APPROVALS_FROM_OTHERS"
 
     /// Every variable Runway reads, for `--diagnose` and the README.
     public static let all = [
         actorMode, actors, repoScope, repositories, repoLimit, organizations, host,
-        notifyApprovals,
+        notifyApprovals, approvalsFromOthers,
     ]
 
     static func string(_ name: String) -> String? {
@@ -92,6 +93,7 @@ public final class Preferences {
         static let haptics = "island.haptics"
         static let idleMark = "island.idleMark"
         static let approvalNotifications = "notify.approvals"
+        static let approvalsFromOthers = "actors.approvalsFromOthers"
     }
 
     private let defaults: UserDefaults
@@ -144,6 +146,9 @@ public final class Preferences {
         self.approvalNotifications = (defaults.object(forKey: Key.approvalNotifications) as? Bool)
             ?? EnvironmentDefault.bool(EnvironmentDefault.notifyApprovals)
             ?? true
+        self.approvalsFromOthers = (defaults.object(forKey: Key.approvalsFromOthers) as? Bool)
+            ?? EnvironmentDefault.bool(EnvironmentDefault.approvalsFromOthers)
+            ?? false
 
         // `RUNWAY_ACTORS` without `RUNWAY_ACTOR_MODE` reads as "watch these
         // people" — taking the list but leaving the mode on `.me` would ignore
@@ -184,6 +189,8 @@ public final class Preferences {
             if let value = EnvironmentDefault.string(name) { host = value }
         case EnvironmentDefault.notifyApprovals:
             if let value = EnvironmentDefault.bool(name) { approvalNotifications = value }
+        case EnvironmentDefault.approvalsFromOthers:
+            if let value = EnvironmentDefault.bool(name) { approvalsFromOthers = value }
         default:
             break
         }
@@ -259,6 +266,21 @@ public final class Preferences {
             defaults.set(approvalNotifications, forKey: Key.approvalNotifications)
             ApprovalNotifier.isEnabled = approvalNotifications
         }
+    }
+
+    /// Whether a run the "whose runs" filter would hide may come back because
+    /// it is parked on **your** review.
+    ///
+    /// Off by default, because the filter has to mean what it says. Inside an
+    /// organization the account is usually a member of a reviewing team, so
+    /// GitHub answers `current_user_can_approve: true` for every colleague's
+    /// deploy on every environment that team guards — and "Only my runs"
+    /// filled up with other people's pipelines, which is the opposite of what
+    /// was ticked. Turn it on and they come back, deliberately.
+    ///
+    /// No effect under `.everyone`: nothing is being hidden there to restore.
+    public var approvalsFromOthers: Bool {
+        didSet { defaults.set(approvalsFromOthers, forKey: Key.approvalsFromOthers) }
     }
 
     // MARK: - Derived

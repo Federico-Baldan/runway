@@ -280,6 +280,21 @@ to save one click.
 
 Turn it off in Settings → Alerts, or with `RUNWAY_NOTIFY_APPROVALS=0`.
 
+### It does not overrule "whose runs"
+
+**"Only my runs" means only your runs**, approvals included. Earlier versions
+let a colleague's deploy back onto the island whenever GitHub said you could
+approve it, on the theory that a run parked on your review is your problem now.
+Inside an organization that theory collapses: environments are usually guarded
+by a *team*, and if you are in that team GitHub answers
+`current_user_can_approve: true` for everybody's deploy — so the one setting
+that promised a quiet island delivered the whole company's pipelines instead.
+
+If you want that behaviour, it is still there: **Settings → Whose runs → "Let
+deploys waiting on my approval through anyway"**, or
+`RUNWAY_APPROVALS_FROM_OTHERS=1`. It is off unless you ask for it, and it has no
+effect on "Everyone's runs", where nothing was being hidden to begin with.
+
 ### What it costs
 
 Nothing on a normal poll. The pending-deployments request is only ever sent for
@@ -345,6 +360,7 @@ Settings.
 | `RUNWAY_ORGS` | `acme,acme-labs` |
 | `RUNWAY_HOST` | `https://github.example.com` (Enterprise Server) |
 | `RUNWAY_NOTIFY_APPROVALS` | `0` / `1` — banners when a deploy needs *your* approval |
+| `RUNWAY_APPROVALS_FROM_OTHERS` | `0` / `1` — let a colleague's deploy past the "whose runs" filter when it needs *your* approval (default `0`) |
 
 **They are defaults, not locks.** A variable supplies the starting value for a
 setting you have never touched. The moment you change that setting in the app,

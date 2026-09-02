@@ -203,6 +203,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let explicit = preferences.explicitRepositories
         let actorScope = preferences.actorScope
         let watchedActors = preferences.watchedActors
+        let approvalsFromOthers = preferences.approvalsFromOthers
         let currentUser = preferences.currentUser
 
         Task.detached {
@@ -213,6 +214,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 explicitRepositories: explicit,
                 actorScope: actorScope,
                 watchedActors: watchedActors,
+                approvalsFromOthers: approvalsFromOthers,
                 currentUser: currentUser
             )
         }
@@ -289,6 +291,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             preferences.explicitRepositories.joined(separator: ","),
             preferences.actorScope.rawValue,
             preferences.watchedActors.joined(separator: ","),
+            preferences.approvalsFromOthers ? "approvals" : "strict",
             preferences.currentUser ?? "",
         ].joined(separator: "|")
     }
