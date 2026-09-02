@@ -92,6 +92,7 @@ public final class Preferences {
         static let currentUser = "account.login"
         static let haptics = "island.haptics"
         static let idleMark = "island.idleMark"
+        static let idleMarkPosition = "island.idleMarkPosition"
         static let approvalNotifications = "notify.approvals"
         static let approvalsFromOthers = "actors.approvalsFromOthers"
     }
@@ -143,6 +144,9 @@ public final class Preferences {
         self.currentUser = defaults.string(forKey: Key.currentUser)
         self.haptics = defaults.object(forKey: Key.haptics) as? Bool ?? true
         self.idleMark = defaults.object(forKey: Key.idleMark) as? Bool ?? true
+        self.idleMarkPosition = IdleMarkPosition(
+            rawValue: defaults.string(forKey: Key.idleMarkPosition) ?? ""
+        ) ?? .center
         self.approvalNotifications = (defaults.object(forKey: Key.approvalNotifications) as? Bool)
             ?? EnvironmentDefault.bool(EnvironmentDefault.notifyApprovals)
             ?? true
@@ -249,6 +253,12 @@ public final class Preferences {
     /// argument for both halves.
     public var idleMark: Bool {
         didSet { defaults.set(idleMark, forKey: Key.idleMark) }
+    }
+
+    /// Where that mark sits in the band under the cutout. See
+    /// `IdleMarkPosition` for why this is a preference and not a decision.
+    public var idleMarkPosition: IdleMarkPosition {
+        didSet { defaults.set(idleMarkPosition.rawValue, forKey: Key.idleMarkPosition) }
     }
 
     /// Haptic feedback on run transitions.

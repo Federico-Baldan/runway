@@ -77,6 +77,12 @@ public final class NotchPanelController {
         didSet { applyIdlePresence() }
     }
 
+    /// Where the resting mark sits in its band. Straight through to the model —
+    /// unlike `showsIdleMark` there is nothing about the display to AND it with.
+    public var idleMarkPosition: IdleMarkPosition = .center {
+        didSet { model.idleMarkPosition = idleMarkPosition }
+    }
+
     private var currentPlacement: NotchGeometry.Placement?
     private var observers: [NSObjectProtocol] = []
 

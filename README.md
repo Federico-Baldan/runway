@@ -396,13 +396,21 @@ waiting on you, because a permission prompt with nothing behind it gets denied.
 Settings shows what macOS currently allows and links straight to the right pane
 if you said no and changed your mind.
 
-**The mark in the notch** — with nothing running, a notched Mac keeps a few
-points of island under the cutout with the Runway mark sitting in it, blinking
-every so often and occasionally glancing about. Hover it and it looks back. It
-is notch-only: off a cutout the resting island is a floating pill under the menu
-bar, and a pill that never leaves is furniture. It holds no animation timer —
-one short wakeup every four to twelve seconds, none at all while the screen is
-asleep or Reduce Motion is on. Off in Settings → Where to show the island.
+**The mark in the notch** — with nothing running, a notched Mac keeps a band of
+island under the cutout with the Runway mark sitting in it, blinking every so
+often and looking around. The band is *blended* into the housing rather than
+hung off it: concave shoulders where it meets the menu bar, convex corners at
+the bottom, so the union of hardware and pixels reads as one object. Hover it
+and it looks back. Left, centre or right in Settings, since the band is the
+cutout's width and that is a lot of room for one small mark.
+
+The eye moves in saccades — abrupt 45-70ms jumps, a fixation between each, and a
+blink on the way home, because that is what a real gaze shift does and a springy
+eye is the one thing that reads as unmistakably fake. It is notch-only: off a
+cutout the resting island is a floating pill under the menu bar, and a pill that
+never leaves is furniture. It holds no animation timer — one short beat every
+four to twelve seconds, none at all while the screen is asleep or Reduce Motion
+is on. Off in Settings → Where to show the island.
 
 **Launch at login** — registers with macOS via `SMAppService`. It shows up in
 System Settings → General → Login Items, and turning it off there wins: the app

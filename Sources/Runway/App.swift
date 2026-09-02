@@ -106,6 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// key does not reconfigure the monitor.
     private var lastScreenPreference: NotchGeometry.ScreenPreference?
     private var lastIdleMark: Bool?
+    private var lastIdleMarkPosition: IdleMarkPosition?
     private var lastConfigurationSignature: String?
 
     private let verifyOnly: Bool
@@ -141,6 +142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panelController = controller
         controller.screenPreference = Preferences.shared.screenPreference
         controller.showsIdleMark = Preferences.shared.idleMark
+        controller.idleMarkPosition = Preferences.shared.idleMarkPosition
 
         if verifyOnly {
             runVerification(controller)
@@ -239,6 +241,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func observePreferences() {
         lastScreenPreference = Preferences.shared.screenPreference
         lastIdleMark = Preferences.shared.idleMark
+        lastIdleMarkPosition = Preferences.shared.idleMarkPosition
         lastConfigurationSignature = configurationSignature()
 
         // Push the stored configuration in immediately, before the first poll.
@@ -269,6 +272,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if idleMark != lastIdleMark {
             lastIdleMark = idleMark
             panelController?.showsIdleMark = idleMark
+        }
+
+        let idleMarkPosition = Preferences.shared.idleMarkPosition
+        if idleMarkPosition != lastIdleMarkPosition {
+            lastIdleMarkPosition = idleMarkPosition
+            panelController?.idleMarkPosition = idleMarkPosition
         }
 
         let signature = configurationSignature()

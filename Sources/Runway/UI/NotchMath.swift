@@ -20,12 +20,30 @@ public enum NotchMath {
         /// Minimum resting width on a notched Mac, when the cutout is narrow.
         public static let minimumNotch: CGFloat = 120
 
-        /// Resting width for a screen.
+        /// The concave flare either side of the cutout, in points.
         ///
-        /// Never narrower than the cutout: a pill inset from the notch draws a
-        /// visible black seam either side and reads as a rendering fault.
+        /// `IslandShape` insets its straight sides by this much to draw the
+        /// fillet, so it is dead width as far as content is concerned and live
+        /// width as far as the frame is concerned. Twelve points is enough for
+        /// the curve to be legible at menu-bar height without the island
+        /// visibly overhanging the cutout.
+        public static let shoulder: CGFloat = 12
+
+        /// The straight-sided part of the resting island — what actually has to
+        /// match the cutout.
+        ///
+        /// Never narrower than it: a body inset from the notch draws a visible
+        /// black seam either side and reads as a rendering fault.
+        public static func restingBody(notchWidth: CGFloat) -> CGFloat {
+            max(notchWidth, minimumNotch)
+        }
+
+        /// Resting *frame* width for a screen: the body plus both shoulders.
+        ///
+        /// The two differ only under a cutout. Off one there is no flare to pay
+        /// for, so the pill's frame is its body.
         public static func resting(hasNotch: Bool, notchWidth: CGFloat) -> CGFloat {
-            hasNotch ? max(notchWidth, minimumNotch) : collapsed
+            hasNotch ? restingBody(notchWidth: notchWidth) + shoulder * 2 : collapsed
         }
     }
 

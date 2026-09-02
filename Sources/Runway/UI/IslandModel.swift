@@ -66,6 +66,10 @@ public final class IslandModel {
     /// feature, and `IdleMark` explains why.
     public var showsIdleMark = false
 
+    /// Where in the band under the cutout that mark sits. Written by
+    /// `NotchPanelController` from the preference, same as `showsIdleMark`.
+    public var idleMarkPosition: IdleMarkPosition = .center
+
     /// Drives the enter/exit morph.
     public var isOnScreen = false
 

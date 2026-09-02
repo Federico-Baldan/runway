@@ -35,13 +35,23 @@ enum NotchPlacementVerify {
 
         print()
         print("── resting width ──")
-        assert("a notched Mac rests at exactly the cutout width",
-               NotchMath.Width.resting(hasNotch: true, notchWidth: 190) == 190)
+        // The frame is the body plus both concave shoulders. `IslandShape`
+        // insets its straight sides by one shoulder each, so it is the BODY
+        // that has to match the cutout — asserting on the frame instead is how
+        // a shoulder-width black seam would ship unnoticed either side.
+        let shoulder = NotchMath.Width.shoulder
+        assert("the straight-sided body is exactly the cutout width",
+               NotchMath.Width.restingBody(notchWidth: 190) == 190)
+        assert("the frame carries the flare on top of it",
+               NotchMath.Width.resting(hasNotch: true, notchWidth: 190) == 190 + shoulder * 2)
         assert("never narrower than the cutout — no black seam",
-               NotchMath.Width.resting(hasNotch: true, notchWidth: 190) >= 190)
+               NotchMath.Width.restingBody(notchWidth: 190) >= 190)
+        assert("the flare is real width, not a rounding artefact", shoulder > 0)
         assert("an implausibly narrow cutout is floored, not honoured",
-               NotchMath.Width.resting(hasNotch: true, notchWidth: 40) == NotchMath.Width.minimumNotch)
+               NotchMath.Width.restingBody(notchWidth: 40) == NotchMath.Width.minimumNotch)
         assert("a notchless display rests at the pill width",
+               NotchMath.Width.resting(hasNotch: false, notchWidth: 0) == NotchMath.Width.collapsed)
+        assert("a notchless display has no shoulders to pay for",
                NotchMath.Width.resting(hasNotch: false, notchWidth: 0) == NotchMath.Width.collapsed)
 
         print()
@@ -64,6 +74,7 @@ enum NotchPlacementVerify {
             let widthOK = canvas.width >= expanded.width
                 && canvas.width >= collapsed.width
                 && canvas.width >= NotchMath.Width.expanded
+                && canvas.width >= NotchMath.Width.resting(hasNotch: band > 0, notchWidth: 190)
             let heightOK = canvas.height >= expanded.height + band && canvas.height >= collapsed.height
 
             print("  \(label): canvas \(Int(canvas.width))x\(Int(canvas.height))"

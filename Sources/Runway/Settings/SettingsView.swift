@@ -665,16 +665,36 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Keep the mark in the notch when nothing is running")
                         .font(.system(size: 12, weight: .medium))
-                    Text("A few points of island stay under the cutout with the Runway "
-                         + "mark in them, blinking every so often. Notched Macs only: off "
-                         + "a notch the resting island is a floating pill, and a pill that "
-                         + "never leaves is furniture.")
+                    Text("The island stays as a band under the cutout, blended into it, "
+                         + "with the Runway mark in it — blinking and looking around every "
+                         + "so often. Notched Macs only: off a notch the resting island is "
+                         + "a floating pill, and a pill that never leaves is furniture.")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .toggleStyle(.switch)
+
+            // Indented under the toggle it belongs to, and dimmed with it: a
+            // live-looking control for a mark that is switched off is a control
+            // that does nothing.
+            HStack(spacing: 8) {
+                Text("Where in the notch")
+                    .font(.system(size: 12))
+                    .foregroundStyle(preferences.idleMark ? .primary : .tertiary)
+                Picker("", selection: $preferences.idleMarkPosition) {
+                    ForEach(IdleMarkPosition.allCases, id: \.self) { position in
+                        Text(position.title).tag(position)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .frame(width: 210)
+                Spacer()
+            }
+            .padding(.leading, 38)
+            .disabled(!preferences.idleMark)
 
             Divider().padding(.vertical, 4)
 

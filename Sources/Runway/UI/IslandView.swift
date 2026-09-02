@@ -103,7 +103,6 @@ struct IslandView: View {
     /// will ever see, so it is the piece that has to survive being glanced at.
     private var restBadge: some View {
         HStack(spacing: 5) {
-            Spacer(minLength: 0)
             if let run = model.headline {
                 StatusGlyph(
                     status: run.status,
@@ -140,14 +139,31 @@ struct IslandView: View {
                 // Nothing running, nothing wrong: the mark sits in the notch
                 // and blinks. See `IdleMark` for why the island is on screen
                 // at all in this state, and what it costs.
-                IdleMark(height: 9, isSuspended: model.isSuspended)
-                    .transition(.opacity)
+                IdleMark(
+                    height: 12,
+                    isSuspended: model.isSuspended,
+                    position: model.idleMarkPosition
+                )
+                .transition(.opacity)
             }
-            Spacer(minLength: 0)
         }
-        .frame(height: isIdle ? 11 : 14)
-        .padding(.bottom, isIdle ? 3 : 4)
+        // Alignment on the ROW, not Spacers inside it. The mark is the one
+        // thing in here that is not necessarily centred, and a child asking for
+        // `maxWidth: .infinity` between two Spacers is three views bidding for
+        // the same slack — SwiftUI splits it, and `leading` would not have come
+        // out flush left.
+        .frame(maxWidth: .infinity, alignment: restAlignment)
+        // Never under the shoulders: the flare is where the island stops being
+        // the cutout's width, so content that runs into it hangs off the notch.
+        .padding(.horizontal, NotchGeometry.Width.shoulder + 4)
+        .frame(height: 14)
+        .padding(.bottom, isIdle ? 5 : 4)
         .transition(.opacity)
+    }
+
+    /// Centred, unless it is the idle mark and the user moved it.
+    private var restAlignment: Alignment {
+        isIdle && model.showsIdleMark ? model.idleMarkPosition.alignment : .center
     }
 
     /// Nothing to report: no runs on screen and nothing broken.
@@ -157,14 +173,14 @@ struct IslandView: View {
 
     // MARK: - Chrome
 
-    /// Square top edge under a cutout, fully rounded otherwise.
-    private var shape: some InsettableShape {
-        UnevenRoundedRectangle(
-            topLeadingRadius: hasNotch ? 0 : 14,
-            bottomLeadingRadius: hasNotch ? 18 : 14,
-            bottomTrailingRadius: hasNotch ? 18 : 14,
-            topTrailingRadius: hasNotch ? 0 : 14,
-            style: .continuous
+    /// Concave shoulders and convex bottom under a cutout, a plain pill
+    /// otherwise. `IslandShape` carries the argument for the shoulders.
+    private var shape: IslandShape {
+        IslandShape(
+            hasNotch: hasNotch,
+            shoulder: hasNotch ? NotchGeometry.Width.shoulder : 0,
+            bottomRadius: hasNotch ? 18 : 14,
+            pillRadius: 14
         )
     }
 
@@ -212,8 +228,13 @@ struct IslandView: View {
                 // eye looks back instead of wandering off.
                 if model.showsIdleMark {
                     HStack(spacing: 8) {
-                        IdleMark(height: 11, isSuspended: model.isSuspended, isAttentive: true)
-                            .frame(width: 16)
+                        IdleMark(
+                            height: 11,
+                            isSuspended: model.isSuspended,
+                            isAttentive: true,
+                            position: model.idleMarkPosition
+                        )
+                        .frame(width: 16)
                         Text("nothing running")
                             .font(.system(size: 11))
                             .foregroundStyle(.white.opacity(0.34))

@@ -67,9 +67,10 @@ enum Diagnostics {
         )
         print("  resting width: \(Int(restingWidth))pt")
         if placement.hasNotch {
-            print("  On a notched Mac the RESTING island is exactly the cutout: a small")
-            print("  status dot on black, sitting on the black bezel. It is deliberately")
-            print("  subtle and easy to miss. Hover the notch to expand it.")
+            print("  On a notched Mac the RESTING island is the cutout's width plus a")
+            print("  concave shoulder either side, so it blends into the housing instead")
+            print("  of hanging off it: a small status dot on black, sitting on the black")
+            print("  bezel. Deliberately subtle and easy to miss. Hover the notch to expand.")
         } else {
             print("  On a display without a notch the island is a \(Int(restingWidth))pt pill")
             print("  centred under the menu bar.")
@@ -82,8 +83,9 @@ enum Diagnostics {
             + (placement.hasNotch ? "" : "  (notched displays only — not this one)"))
         if idleMark, placement.hasNotch {
             print("  So with nothing running the island does not leave: it stays as a few")
-            print("  points of black under the cutout with the mark in it, blinking. That")
-            print("  is the dot you are looking at.")
+            print("  points of black under the cutout with the mark in it, blinking and")
+            print("  looking around. That is the dot you are looking at.")
+            print("  position:    \(Preferences.shared.idleMarkPosition.rawValue)")
         }
         print()
     }
