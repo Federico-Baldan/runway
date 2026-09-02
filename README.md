@@ -286,6 +286,50 @@ Nothing on a normal poll. The pending-deployments request is only ever sent for
 a run that has already said it is waiting — see `RunMonitor.shouldFetchApprovals`
 — so a repository where nothing is blocked never pays for it.
 
+## Prod, staging or test
+
+Two runs of the same workflow in the same repository look identical on an island
+that only draws status — and one of them is going to production.
+
+So a run that is deploying somewhere carries the name of where, in a colour that
+is deliberately none of the status colours: violet for production, teal for
+staging, grey for anything that cannot hurt you. What the chip looks like says
+how much to trust it.
+
+| Chip | Means |
+|---|---|
+| **Filled** | GitHub named the environment. The run is parked on a deployment gate and `pending_deployments` said so. |
+| **Outlined** | Runway read a name — a job, a step, the workflow file, the branch — and drew a conclusion. The tooltip says which. |
+
+That distinction is the whole design, because **GitHub does not put an
+environment on a workflow run.** It names one in exactly one place,
+`pending_deployments`, and only for a run waiting on a required reviewer. Every
+deploy that is *allowed* to proceed goes past without the API ever saying where
+it went, so everything else is read off the names people chose — and a status
+app that draws a guess and a fact identically is one you stop trusting the first
+time it is wrong about production.
+
+The reading is conservative on purpose, because the expensive failure is not a
+missing chip:
+
+- **Whole words, never substrings.** A job called `product-api` is not a
+  production deploy. Neither is a workflow called `Reproduction cases`.
+- **`preprod`, `PreProd` and `PreProdDeploy` are staging.** Reading the
+  rehearsal as the real thing is the one mistake here with a cost attached.
+- **Ambiguous words need a deploy verb.** `test`, `dev`, `preview` and `stage`
+  only count when something is being shipped in the same name. Every repository
+  on earth has a job called `test`; a chip on every CI run would make the label
+  worth nothing.
+- **Step names need a verb whatever the word**, because `Build production
+  bundle` is a step in half the JavaScript repositories on GitHub and deploys
+  nothing.
+- **When a run touches two, the one with the most to lose wins.**
+
+None of it costs a request — it reads the payload the island already has.
+[`docs/environments.md`](docs/environments.md) has the endpoints that were
+considered and rejected and why, and `spike/EnvironmentVerify.swift` pins every
+rule above, traps included.
+
 ## Environment variables
 
 Handy for setting the filter per project or from a dotfile, without opening
@@ -336,6 +380,14 @@ waiting on you, because a permission prompt with nothing behind it gets denied.
 Settings shows what macOS currently allows and links straight to the right pane
 if you said no and changed your mind.
 
+**The mark in the notch** — with nothing running, a notched Mac keeps a few
+points of island under the cutout with the Runway mark sitting in it, blinking
+every so often and occasionally glancing about. Hover it and it looks back. It
+is notch-only: off a cutout the resting island is a floating pill under the menu
+bar, and a pill that never leaves is furniture. It holds no animation timer —
+one short wakeup every four to twelve seconds, none at all while the screen is
+asleep or Reduce Motion is on. Off in Settings → Where to show the island.
+
 **Launch at login** — registers with macOS via `SMAppService`. It shows up in
 System Settings → General → Login Items, and turning it off there wins: the app
 reads the system state rather than its own preference.
@@ -352,8 +404,9 @@ overrides in force, and whether there's a token. "Nothing shows up" is as often
 a filter as a display, so it covers both.
 
 Worth knowing: the island only appears while a run is in progress, or briefly
-after one finishes. If nothing is running, an empty notch is correct — check the
-menu bar icon instead.
+after one finishes. If nothing is running, a notched Mac shows the mark sitting
+in the cutout and nothing else — and with that turned off, or on a display
+without a notch, an empty menu bar is correct. Check the menu bar icon instead.
 
 ## Updating
 
@@ -390,6 +443,7 @@ app changes:
 |---|---|
 | `StatusFusionVerify` | GitHub's split `status`/`conclusion` pair, where every finished run says `completed` and only `conclusion` says whether it passed |
 | `ApprovalVerify` | that a banner reaches the person who can approve and nobody else, and that a sparse `pending_deployments` payload never decodes into a claim you can approve something |
+| `EnvironmentVerify` | that a run is only called production when something says so — whole-word matching, `preprod` staying staging, and the job named `test` that every repository has |
 | `ActorFilterVerify` | who is kept and who is dropped, including re-runs and unresolved `@me` |
 | `RateBudgetVerify` | that the poll fits inside 5,000 requests an hour |
 | `CenteringVerify` | the island being centred on the *screen*, not the visible frame — off-centre by half a Dock width otherwise |

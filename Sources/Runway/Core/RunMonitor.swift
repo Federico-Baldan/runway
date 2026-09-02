@@ -616,6 +616,11 @@ public actor RunMonitor {
             }
 
             copy.pendingDeployments = await pendingDeployments(for: copy)
+            // Last, because it reads both of the things above: a run parked on
+            // a gate has GitHub's own name for the environment in its pending
+            // deployments, and everything else has to be read off the job and
+            // step names that have just arrived.
+            copy.stampDeployTarget()
             result.append(copy)
         }
         return result

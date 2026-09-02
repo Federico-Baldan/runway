@@ -67,6 +67,16 @@ public final class NotchPanelController {
         didSet { reposition() }
     }
 
+    /// Whether the island should stay on screen with nothing running.
+    ///
+    /// The preference as the user set it. It is AND-ed with the cutout here
+    /// rather than in the model, because this is the only object that knows
+    /// there is one: off a notch the resting island is a floating pill under
+    /// the menu bar, and a pill that never leaves is furniture. See `IdleMark`.
+    public var showsIdleMark = false {
+        didSet { applyIdlePresence() }
+    }
+
     private var currentPlacement: NotchGeometry.Placement?
     private var observers: [NSObjectProtocol] = []
 
@@ -245,6 +255,19 @@ public final class NotchPanelController {
         applyFrame()
     }
 
+    /// Push the resolved idle presence into the model, and open or close the
+    /// panel if it changed.
+    ///
+    /// Called on every placement pass as well as on the setter, because moving
+    /// to an external display is exactly the moment the answer changes without
+    /// anybody touching the preference.
+    private func applyIdlePresence() {
+        let shows = showsIdleMark && (currentPlacement?.hasNotch ?? false)
+        guard shows != model.showsIdleMark else { return }
+        model.showsIdleMark = shows
+        setVisible(model.isVisible)
+    }
+
     private func applyFrame() {
         guard let screen = NotchGeometry.screen(for: screenPreference) else { return }
 
@@ -259,6 +282,7 @@ public final class NotchPanelController {
             panel.setFrame(placement.frame, display: true)
         }
         if notchChanged { updateRootView() }
+        applyIdlePresence()
     }
 
     /// Lid open/close and monitor sleep move the panel between displays mid-session.

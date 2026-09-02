@@ -374,9 +374,17 @@ public actor GitHubClient {
         )
 
         // The per-repo endpoint does not repeat the repository on each run.
+        //
+        // The deploy target is stamped in the same pass, off the run's own
+        // names alone. `RunMonitor` stamps it again once the jobs have landed,
+        // and that answer is the better one — but a run the actor filter is
+        // hiding never gets jobs at all, and widening the filter in Settings
+        // puts it on the island immediately. Without this it would sit there
+        // with no environment on it until the next poll.
         let stamped = response.value.workflowRuns.map { run -> WorkflowRun in
             var copy = run
             copy.repository = repository
+            copy.stampDeployTarget()
             return copy
         }
         return Conditional(

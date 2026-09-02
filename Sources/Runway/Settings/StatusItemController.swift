@@ -23,6 +23,11 @@ public final class StatusItemController {
     /// menu simply kept showing the old sentence.
     private var lastRepositoryCount: Int = -1
     private var lastError: String?
+    /// And so does where the runs are going. A deploy target lands with the
+    /// job detail, one request after the run itself, and moves neither the
+    /// mood nor the count — so without this the row keeps the title it was
+    /// built with before anybody knew where it was deploying.
+    private var lastEnvironments: String?
 
     public init(
         model: IslandModel,
@@ -137,6 +142,12 @@ public final class StatusItemController {
             menu.addItem(.separator())
             for run in live.prefix(8) {
                 var title = "\(run.repository) #\(run.runNumber) · \(run.headBranch ?? "—")"
+                // The same arrow the approval rows above use, and for the same
+                // reason: it is the destination, not another attribute of the
+                // run.
+                if let target = run.deployTarget {
+                    title += " → \(target.name)"
+                }
                 if let login = run.triggeringActor?.login ?? run.actor?.login {
                     title += "  (\(login))"
                 }
@@ -252,9 +263,13 @@ public final class StatusItemController {
         let approvals = model.runsAwaitingMe.count
         let repositories = model.state.repositories.count
         let error = model.state.error
+        let environments = model.relevantRuns
+            .compactMap(\.deployTarget?.name)
+            .joined(separator: ",")
         guard mood != lastMood || count != lastCount || update != lastUpdate
                 || approvals != lastApprovals || repositories != lastRepositoryCount
-                || error != lastError else { return }
+                || error != lastError || environments != lastEnvironments else { return }
+        lastEnvironments = environments
         lastUpdate = update
         lastMood = mood
         lastCount = count

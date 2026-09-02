@@ -90,6 +90,7 @@ public final class Preferences {
         static let watchedActors = "actors.watched"
         static let currentUser = "account.login"
         static let haptics = "island.haptics"
+        static let idleMark = "island.idleMark"
         static let approvalNotifications = "notify.approvals"
     }
 
@@ -139,6 +140,7 @@ public final class Preferences {
 
         self.currentUser = defaults.string(forKey: Key.currentUser)
         self.haptics = defaults.object(forKey: Key.haptics) as? Bool ?? true
+        self.idleMark = defaults.object(forKey: Key.idleMark) as? Bool ?? true
         self.approvalNotifications = (defaults.object(forKey: Key.approvalNotifications) as? Bool)
             ?? EnvironmentDefault.bool(EnvironmentDefault.notifyApprovals)
             ?? true
@@ -230,6 +232,16 @@ public final class Preferences {
     /// The signed-in login, learned from `GET /user`.
     public var currentUser: String? {
         didSet { defaults.set(currentUser, forKey: Key.currentUser) }
+    }
+
+    /// Keep a few points of island under the cutout when nothing is running,
+    /// with the mark in it.
+    ///
+    /// On by default, and only ever honoured on a display that has a cutout —
+    /// `NotchPanelController` is what enforces that. `IdleMark` carries the
+    /// argument for both halves.
+    public var idleMark: Bool {
+        didSet { defaults.set(idleMark, forKey: Key.idleMark) }
     }
 
     /// Haptic feedback on run transitions.

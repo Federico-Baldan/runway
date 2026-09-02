@@ -496,15 +496,44 @@ struct SettingsView: View {
         } else if let organizationError {
             organizationNotice(organizationError, detail: nil, link: nil)
         } else if organizations.isEmpty {
-            organizationNotice(
-                "The token authenticates, but sees no organizations.",
-                detail: "A fine-grained token belongs to one resource owner: set to your "
-                    + "personal account it can never see an org, and set to the org it stays "
-                    + "inert until an admin approves it. A classic token needs the read:org "
-                    + "scope. Check both on the token itself.",
-                link: ("Open token settings", "https://github.com/settings/tokens")
-            )
+            if isFineGrainedToken {
+                // Not a misconfiguration, and nothing the user can fix on the
+                // token: GitHub documents /user/orgs as returning "a 200
+                // Success response with an empty list" for every fine-grained
+                // token, whatever its permissions or resource owner. Which
+                // makes this picker unusable with the token type the README
+                // recommends — so send them to a scope that does work rather
+                // than to a settings page that cannot help.
+                organizationNotice(
+                    "Fine-grained tokens cannot list organizations. GitHub returns an empty "
+                        + "list here for every one of them — this is not something your token "
+                        + "is missing.",
+                    detail: "Pick \"Recent\" or \"Specific repositories\" above, which read "
+                        + "the repository list directly and do work with this token. Choosing "
+                        + "organizations by name needs a classic token with the read:org scope.",
+                    link: nil
+                )
+            } else {
+                organizationNotice(
+                    "The token authenticates, but sees no organizations.",
+                    detail: "A classic token needs the read:org scope to list them — without "
+                        + "it GitHub refuses the request outright, so an empty list usually "
+                        + "means this account is a member of none.",
+                    link: ("Open token settings", "https://github.com/settings/tokens")
+                )
+            }
         }
+    }
+
+    /// Whether the stored token is a fine-grained one, by its prefix.
+    ///
+    /// Worth knowing here because the difference is not a matter of degree:
+    /// `/user/orgs` is simply closed to fine-grained tokens, so the same empty
+    /// list means two unrelated things depending on which kind is in the
+    /// keychain.
+    private var isFineGrainedToken: Bool {
+        guard let token = TokenCache.shared.token() else { return false }
+        return Keychain.kind(of: token) == .fineGrained
     }
 
     /// One warning row: a headline, the fix, and a way to go do it.
@@ -601,6 +630,23 @@ struct SettingsView: View {
                 .contentShape(Rectangle())
                 .onTapGesture { preferences.screenPreference = option.preference }
             }
+
+            Divider().padding(.vertical, 4)
+
+            Toggle(isOn: $preferences.idleMark) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Keep the mark in the notch when nothing is running")
+                        .font(.system(size: 12, weight: .medium))
+                    Text("A few points of island stay under the cutout with the Runway "
+                         + "mark in them, blinking every so often. Notched Macs only: off "
+                         + "a notch the resting island is a floating pill, and a pill that "
+                         + "never leaves is furniture.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .toggleStyle(.switch)
 
             Divider().padding(.vertical, 4)
 

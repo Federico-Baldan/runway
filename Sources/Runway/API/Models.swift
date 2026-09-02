@@ -303,6 +303,13 @@ public struct WorkflowRun: Codable, Sendable, Hashable, Identifiable {
     public let id: Int
     /// Workflow name, e.g. `build`.
     public let name: String?
+    /// The workflow's own file, e.g. `.github/workflows/deploy-prod.yml`.
+    ///
+    /// Decoded for `DeployClassifier` and nothing else. A workflow's `name:`
+    /// key is often the generic half — "CI", "build" — while whoever wrote the
+    /// file was specific about what it does, so the path is regularly the
+    /// better of the two names to read an environment out of.
+    public let path: String?
     /// The commit subject GitHub shows next to the run.
     public let displayTitle: String?
     public let runNumber: Int
@@ -338,9 +345,20 @@ public struct WorkflowRun: Codable, Sendable, Hashable, Identifiable {
     /// **Actions: Read** permission already covers.
     public var pendingDeployments: [PendingDeployment] = []
 
+    /// Where this run is deploying, if anything about it says so.
+    ///
+    /// Stamped, not computed, and not decoded from anything — GitHub does not
+    /// put an environment on a workflow run. `DeployClassifier` derives it
+    /// from the names already in the payload, and `RunMonitor` stamps it once
+    /// per poll after the jobs and the pending deployments have landed, since
+    /// both feed the answer. `nil` is the normal case: most runs are builds
+    /// and deploy nowhere.
+    public var deployTarget: DeployTarget?
+
     public init(
         id: Int,
         name: String? = nil,
+        path: String? = nil,
         displayTitle: String? = nil,
         runNumber: Int = 0,
         runAttempt: Int = 1,
@@ -360,6 +378,7 @@ public struct WorkflowRun: Codable, Sendable, Hashable, Identifiable {
     ) {
         self.id = id
         self.name = name
+        self.path = path
         self.displayTitle = displayTitle
         self.runNumber = runNumber
         self.runAttempt = runAttempt
@@ -379,7 +398,7 @@ public struct WorkflowRun: Codable, Sendable, Hashable, Identifiable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, status, conclusion, event, actor
+        case id, name, path, status, conclusion, event, actor
         case displayTitle = "display_title"
         case runNumber = "run_number"
         case runAttempt = "run_attempt"
@@ -396,6 +415,7 @@ public struct WorkflowRun: Codable, Sendable, Hashable, Identifiable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(Int.self, forKey: .id)
         name = try container.decodeIfPresent(String.self, forKey: .name)
+        path = try container.decodeIfPresent(String.self, forKey: .path)
         displayTitle = try container.decodeIfPresent(String.self, forKey: .displayTitle)
         runNumber = try container.decodeIfPresent(Int.self, forKey: .runNumber) ?? 0
         runAttempt = try container.decodeIfPresent(Int.self, forKey: .runAttempt) ?? 1
@@ -418,6 +438,7 @@ public struct WorkflowRun: Codable, Sendable, Hashable, Identifiable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
         try container.encodeIfPresent(name, forKey: .name)
+        try container.encodeIfPresent(path, forKey: .path)
         try container.encodeIfPresent(displayTitle, forKey: .displayTitle)
         try container.encode(runNumber, forKey: .runNumber)
         try container.encode(runAttempt, forKey: .runAttempt)
@@ -511,8 +532,8 @@ public struct WorkflowRun: Codable, Sendable, Hashable, Identifiable {
         return URL(string: "https://github.com/\(repository)/actions/runs/\(id)")
     }
 
-    /// Change signature for dedupe: identity, status, jobs, running steps, and
-    /// what the run is waiting on.
+    /// Change signature for dedupe: identity, status, jobs, running steps,
+    /// what the run is waiting on, and where it is going.
     ///
     /// The approval part is not decoration. Everything downstream — the island
     /// redrawing, the notification firing — hangs off this string differing,
@@ -530,7 +551,11 @@ public struct WorkflowRun: Codable, Sendable, Hashable, Identifiable {
             .map { "\($0.environment.name):\($0.currentUserCanApprove)" }
             .sorted()
             .joined(separator: ",")
-        return "\(identity)|\(status.rawValue)|\(jobPart)|\(stepPart)|\(approvalPart)"
+        // The target moves when the jobs land, and again if a gate turns a
+        // guess read off a job name into the name GitHub actually uses.
+        let environmentPart = deployTarget.map { "\($0.name):\($0.tier.rawValue)" } ?? ""
+        return "\(identity)|\(status.rawValue)|\(jobPart)|\(stepPart)"
+            + "|\(approvalPart)|\(environmentPart)"
     }
 }
 

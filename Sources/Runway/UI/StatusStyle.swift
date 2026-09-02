@@ -26,6 +26,26 @@ enum StatusPalette {
     /// Something is wrong with Runway itself, not with your CI.
     static let fault = Color(red: 1.00, green: 0.62, blue: 0.24)
 
+    /// Where a run is going, as opposed to how it is doing.
+    ///
+    /// Deliberately outside the status hues. An environment is not a state:
+    /// a production deploy can be running, passing or broken, and the two
+    /// facts have to be readable at the same time on the same 32pt row. Every
+    /// status colour here is warm-or-primary — blue, green, red, amber — so
+    /// the environments take the half of the wheel none of them use, and a
+    /// violet chip next to a green disc can never be read as a fourth kind of
+    /// outcome.
+    static func environment(_ tier: DeployTier) -> Color {
+        switch tier {
+        // The one that costs something to get wrong, so the one with a colour
+        // of its own that nothing else in the app uses.
+        case .production: return Color(red: 0.78, green: 0.58, blue: 1.00)
+        case .staging: return Color(red: 0.36, green: 0.82, blue: 0.84)
+        // A test deploy is not news, and is drawn like it.
+        case .testing, .unknown: return Color(white: 0.66)
+        }
+    }
+
     /// A two-stop gradient for a filled disc, so a 10pt circle still has a
     /// direction to it instead of reading as a flat sticker.
     static func fill(_ colour: Color) -> LinearGradient {
@@ -467,6 +487,63 @@ struct ApprovalChip: View {
                   ? "GitHub says you can approve this. Click the row to open the run."
                   : "This run is waiting on somebody else.")
         }
+    }
+}
+
+/// Where a run is deploying — `production`, `PreProd`, `staging`.
+///
+/// Two treatments, and the difference between them is the whole reason this
+/// chip is trustworthy. **Filled** means GitHub named the environment itself,
+/// through the pending-deployment gate the run is parked on. **Outlined** means
+/// Runway read a name — a job, the workflow, the branch — and drew a
+/// conclusion. Both say what they are in the tooltip, because "this is going to
+/// production" is a sentence a status app had better not be casually wrong
+/// about. `DeployClassifier` explains what it will and will not guess from.
+struct EnvironmentChip: View {
+    /// Two, because this appears where the island has two width budgets: the
+    /// resting badge under a cutout, and a run row.
+    enum Size {
+        case micro
+        case compact
+    }
+
+    let target: DeployTarget
+    var size: Size = .regular
+
+    private var colour: Color { StatusPalette.environment(target.tier) }
+
+    private var fontSize: CGFloat {
+        size == .micro ? 7.5 : 9
+    }
+
+    /// Enough for `production` and `preproduction`, and a truncation for the
+    /// team that named an environment after a region and a customer.
+    private var maximumWidth: CGFloat {
+        size == .micro ? 62 : 88
+    }
+
+    var body: some View {
+        Text(target.name)
+            .font(.system(size: fontSize, weight: target.tier == .production ? .semibold : .medium,
+                          design: .monospaced))
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .frame(maxWidth: maximumWidth)
+            .foregroundStyle(colour.opacity(target.isConfirmed ? 1 : 0.78))
+            .padding(.horizontal, size == .micro ? 4 : 5)
+            .padding(.vertical, size == .micro ? 0.5 : 1.5)
+            .background(
+                Capsule()
+                    .fill(colour.opacity(target.isConfirmed ? 0.18 : 0))
+                    .overlay(
+                        Capsule().strokeBorder(
+                            colour.opacity(target.isConfirmed ? 0.45 : 0.26),
+                            lineWidth: 1
+                        )
+                    )
+            )
+            .help(target.provenance)
+            .accessibilityLabel(Text("deploys to \(target.name)"))
     }
 }
 

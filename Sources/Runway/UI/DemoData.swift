@@ -42,27 +42,27 @@ public enum DemoData {
         Frame(at: 0, runStatus: .queued,
               jobs: [("test", .queued), ("deploy", .queued)],
               steps: [("checkout", "test", .queued), ("unit", "test", .queued),
-                      ("integration", "test", .queued), ("staging", "deploy", .queued)]),
+                      ("integration", "test", .queued), ("deploy to staging", "deploy", .queued)]),
 
         Frame(at: 2, runStatus: .inProgress,
               jobs: [("test", .inProgress), ("deploy", .queued)],
               steps: [("checkout", "test", .success), ("unit", "test", .inProgress),
-                      ("integration", "test", .queued), ("staging", "deploy", .queued)]),
+                      ("integration", "test", .queued), ("deploy to staging", "deploy", .queued)]),
 
         Frame(at: 7, runStatus: .inProgress,
               jobs: [("test", .inProgress), ("deploy", .queued)],
               steps: [("checkout", "test", .success), ("unit", "test", .success),
-                      ("integration", "test", .inProgress), ("staging", "deploy", .queued)]),
+                      ("integration", "test", .inProgress), ("deploy to staging", "deploy", .queued)]),
 
         Frame(at: 13, runStatus: .inProgress,
               jobs: [("test", .success), ("deploy", .inProgress)],
               steps: [("checkout", "test", .success), ("unit", "test", .success),
-                      ("integration", "test", .success), ("staging", "deploy", .inProgress)]),
+                      ("integration", "test", .success), ("deploy to staging", "deploy", .inProgress)]),
 
         Frame(at: 20, runStatus: .success,
               jobs: [("test", .success), ("deploy", .success)],
               steps: [("checkout", "test", .success), ("unit", "test", .success),
-                      ("integration", "test", .success), ("staging", "deploy", .success)]),
+                      ("integration", "test", .success), ("deploy to staging", "deploy", .success)]),
     ]
 
     /// A second, failing run so the red path gets exercised too.
@@ -145,6 +145,7 @@ public enum DemoData {
         return WorkflowRun(
             id: id,
             name: "build",
+            path: ".github/workflows/build.yml",
             displayTitle: "Update \(branch)",
             runNumber: runNumber,
             runAttempt: attempt,
@@ -162,6 +163,10 @@ public enum DemoData {
             jobs: jobs,
             pendingDeployments: frame.pending
         )
+        // What `RunMonitor` does to every real run once its detail has landed.
+        // Without it the demo is the one place the island draws runs with no
+        // environment on them, which is the state hardest to notice is missing.
+        .stampingDeployTarget()
     }
 
     /// A state with one run in it.

@@ -97,19 +97,20 @@ $(SPIKEOUT):
 	@mkdir -p "$(SPIKEOUT)"
 
 spikes: spikes-offline
-	@echo "── auth ──"   && $(MAKE) -s spike-run SPIKE=AuthSpike  SRC="$(API)/GitHubClient.swift $(API)/Models.swift $(API)/Approvals.swift $(API)/RunScope.swift $(API)/ETagStore.swift Sources/Runway/Auth/Keychain.swift" ARGS=check
-	@echo "── runs ──"   && $(MAKE) -s spike-run SPIKE=RunsSpike  SRC="$(API)/GitHubClient.swift $(API)/Models.swift $(API)/Approvals.swift $(API)/RunScope.swift $(API)/ETagStore.swift Sources/Runway/Auth/Keychain.swift"
+	@echo "── auth ──"   && $(MAKE) -s spike-run SPIKE=AuthSpike  SRC="$(API)/GitHubClient.swift $(API)/Models.swift $(API)/Approvals.swift $(API)/DeployTarget.swift $(API)/RunScope.swift $(API)/ETagStore.swift Sources/Runway/Auth/Keychain.swift" ARGS=check
+	@echo "── runs ──"   && $(MAKE) -s spike-run SPIKE=RunsSpike  SRC="$(API)/GitHubClient.swift $(API)/Models.swift $(API)/Approvals.swift $(API)/DeployTarget.swift $(API)/RunScope.swift $(API)/ETagStore.swift Sources/Runway/Auth/Keychain.swift"
 
 spikes-offline:
-	@echo "── status ──"    && $(MAKE) -s spike-run SPIKE=StatusFusionVerify   SRC="$(API)/Models.swift $(API)/Approvals.swift"
-	@echo "── approvals ──" && $(MAKE) -s spike-run SPIKE=ApprovalVerify      SRC="$(API)/Models.swift $(API)/Approvals.swift"
-	@echo "── actors ──"    && $(MAKE) -s spike-run SPIKE=ActorFilterVerify    SRC="$(API)/RunScope.swift $(API)/Models.swift $(API)/Approvals.swift"
-	@echo "── budget ──"    && $(MAKE) -s spike-run SPIKE=RateBudgetVerify     SRC="$(API)/ETagStore.swift $(API)/RunScope.swift $(API)/Models.swift $(API)/Approvals.swift"
-	@echo "── cadence ──"   && $(MAKE) -s spike-run SPIKE=CadenceVerify       SRC="Sources/Runway/Core/RunMonitor.swift $(API)/GitHubClient.swift $(API)/Models.swift $(API)/Approvals.swift $(API)/RunScope.swift $(API)/ETagStore.swift Sources/Runway/Auth/Keychain.swift"
-	@echo "── scopes ──"    && $(MAKE) -s spike-run SPIKE=ReentrancyVerify   SRC="Sources/Runway/Core/RunMonitor.swift $(API)/GitHubClient.swift $(API)/Models.swift $(API)/Approvals.swift $(API)/RunScope.swift $(API)/ETagStore.swift Sources/Runway/Auth/Keychain.swift"
+	@echo "── status ──"    && $(MAKE) -s spike-run SPIKE=StatusFusionVerify   SRC="$(API)/Models.swift $(API)/Approvals.swift $(API)/DeployTarget.swift"
+	@echo "── approvals ──" && $(MAKE) -s spike-run SPIKE=ApprovalVerify      SRC="$(API)/Models.swift $(API)/Approvals.swift $(API)/DeployTarget.swift"
+	@echo "── environments ──" && $(MAKE) -s spike-run SPIKE=EnvironmentVerify  SRC="$(API)/Models.swift $(API)/Approvals.swift $(API)/DeployTarget.swift"
+	@echo "── actors ──"    && $(MAKE) -s spike-run SPIKE=ActorFilterVerify    SRC="$(API)/RunScope.swift $(API)/Models.swift $(API)/Approvals.swift $(API)/DeployTarget.swift"
+	@echo "── budget ──"    && $(MAKE) -s spike-run SPIKE=RateBudgetVerify     SRC="$(API)/ETagStore.swift $(API)/RunScope.swift $(API)/Models.swift $(API)/Approvals.swift $(API)/DeployTarget.swift"
+	@echo "── cadence ──"   && $(MAKE) -s spike-run SPIKE=CadenceVerify       SRC="Sources/Runway/Core/RunMonitor.swift $(API)/GitHubClient.swift $(API)/Models.swift $(API)/Approvals.swift $(API)/DeployTarget.swift $(API)/RunScope.swift $(API)/ETagStore.swift Sources/Runway/Auth/Keychain.swift"
+	@echo "── scopes ──"    && $(MAKE) -s spike-run SPIKE=ReentrancyVerify   SRC="Sources/Runway/Core/RunMonitor.swift $(API)/GitHubClient.swift $(API)/Models.swift $(API)/Approvals.swift $(API)/DeployTarget.swift $(API)/RunScope.swift $(API)/ETagStore.swift Sources/Runway/Auth/Keychain.swift"
 	@echo "── centering ──" && $(MAKE) -s spike-run SPIKE=CenteringVerify      SRC="Sources/Runway/UI/NotchMath.swift"
 	@echo "── notch ──"     && $(MAKE) -s spike-run SPIKE=NotchPlacementVerify SRC="Sources/Runway/UI/NotchMath.swift"
-	@echo "── sso ──"       && $(MAKE) -s spike-run SPIKE=SSOVerify           SRC="$(API)/GitHubClient.swift $(API)/Models.swift $(API)/Approvals.swift $(API)/RunScope.swift $(API)/ETagStore.swift Sources/Runway/Auth/Keychain.swift"
+	@echo "── sso ──"       && $(MAKE) -s spike-run SPIKE=SSOVerify           SRC="$(API)/GitHubClient.swift $(API)/Models.swift $(API)/Approvals.swift $(API)/DeployTarget.swift $(API)/RunScope.swift $(API)/ETagStore.swift Sources/Runway/Auth/Keychain.swift"
 
 # Compile one spike against the real sources, then run it.
 spike-run: $(SPIKEOUT)

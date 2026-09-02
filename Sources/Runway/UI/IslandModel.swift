@@ -58,6 +58,14 @@ public final class IslandModel {
     /// property it read was still recomputing the walk on every assignment.
     public private(set) var stateSignature = ""
 
+    /// True when the island stays on screen with nothing running, drawing the
+    /// mark instead of leaving.
+    ///
+    /// Written by `NotchPanelController`, which is the only part of the app
+    /// that knows whether this display has a cutout — the mark is a notched-Mac
+    /// feature, and `IdleMark` explains why.
+    public var showsIdleMark = false
+
     /// Drives the enter/exit morph.
     public var isOnScreen = false
 
@@ -282,6 +290,8 @@ public final class IslandModel {
         // Never disappear while the user is reading it.
         if isExpanded { return true }
         if state.error != nil { return true }
+        // The one state that keeps the island up with nothing to report.
+        if showsIdleMark { return true }
         return !relevantRuns.isEmpty
     }
 

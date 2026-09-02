@@ -105,6 +105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Last-seen preference values, so a change notification for an unrelated
     /// key does not reconfigure the monitor.
     private var lastScreenPreference: NotchGeometry.ScreenPreference?
+    private var lastIdleMark: Bool?
     private var lastConfigurationSignature: String?
 
     private let verifyOnly: Bool
@@ -139,6 +140,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         panelController = controller
         controller.screenPreference = Preferences.shared.screenPreference
+        controller.showsIdleMark = Preferences.shared.idleMark
 
         if verifyOnly {
             runVerification(controller)
@@ -234,6 +236,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Push preference changes into the parts of the app that read them.
     private func observePreferences() {
         lastScreenPreference = Preferences.shared.screenPreference
+        lastIdleMark = Preferences.shared.idleMark
         lastConfigurationSignature = configurationSignature()
 
         // Push the stored configuration in immediately, before the first poll.
@@ -258,6 +261,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if screen != lastScreenPreference {
             lastScreenPreference = screen
             panelController?.screenPreference = screen
+        }
+
+        let idleMark = Preferences.shared.idleMark
+        if idleMark != lastIdleMark {
+            lastIdleMark = idleMark
+            panelController?.showsIdleMark = idleMark
         }
 
         let signature = configurationSignature()

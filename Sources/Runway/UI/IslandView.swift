@@ -114,6 +114,15 @@ struct IslandView: View {
                 .transition(.scale(scale: 0.4).combined(with: .opacity))
                 .id(run.identity)
 
+                // The one thing worth two more points of width up here. A
+                // glyph says how the run is doing; on a deploy, *where* it is
+                // going is the half of the sentence you cannot afford to have
+                // to hover for.
+                if let target = run.deployTarget {
+                    EnvironmentChip(target: target, size: .micro)
+                        .transition(.scale(scale: 0.6).combined(with: .opacity))
+                }
+
                 if model.relevantRuns.count > 1 {
                     Text("\(model.relevantRuns.count)")
                         .font(.system(size: 9, weight: .semibold, design: .monospaced))
@@ -127,12 +136,23 @@ struct IslandView: View {
                     .foregroundStyle(StatusPalette.fault)
                     .shadow(color: StatusPalette.fault.opacity(0.5), radius: 3)
                     .transition(.scale(scale: 0.4).combined(with: .opacity))
+            } else if model.showsIdleMark {
+                // Nothing running, nothing wrong: the mark sits in the notch
+                // and blinks. See `IdleMark` for why the island is on screen
+                // at all in this state, and what it costs.
+                IdleMark(height: 9, isSuspended: model.isSuspended)
+                    .transition(.opacity)
             }
             Spacer(minLength: 0)
         }
-        .frame(height: 14)
-        .padding(.bottom, 4)
+        .frame(height: isIdle ? 11 : 14)
+        .padding(.bottom, isIdle ? 3 : 4)
         .transition(.opacity)
+    }
+
+    /// Nothing to report: no runs on screen and nothing broken.
+    private var isIdle: Bool {
+        model.headline == nil && model.state.error == nil
     }
 
     // MARK: - Chrome
@@ -187,11 +207,29 @@ struct IslandView: View {
                 )
 
             } else if model.collapsedRuns.isEmpty {
-                noticeRow(
-                    symbol: "circle.dashed",
-                    tint: Color.white.opacity(0.26),
-                    text: "nothing running"
-                )
+                // The expanded form of the resting mark. Hovering the island is
+                // the one moment somebody is definitely looking at it, so the
+                // eye looks back instead of wandering off.
+                if model.showsIdleMark {
+                    HStack(spacing: 8) {
+                        IdleMark(height: 11, isSuspended: model.isSuspended, isAttentive: true)
+                            .frame(width: 16)
+                        Text("nothing running")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.white.opacity(0.34))
+                            .lineLimit(1)
+                        Spacer(minLength: 2)
+                    }
+                    .padding(.horizontal, 12)
+                    .frame(height: 32)
+                    .transition(.opacity)
+                } else {
+                    noticeRow(
+                        symbol: "circle.dashed",
+                        tint: Color.white.opacity(0.26),
+                        text: "nothing running"
+                    )
+                }
 
             } else {
                 ForEach(Array(model.collapsedRuns.enumerated()), id: \.element.id) { index, run in
@@ -353,6 +391,9 @@ struct JobDetail: View {
                         .font(.system(size: 9, design: .monospaced))
                         .foregroundStyle(.white.opacity(0.4))
                 }
+                if let target = run.deployTarget, !run.isBlockedOnApproval {
+                    EnvironmentChip(target: target, size: .compact)
+                }
                 if showActor { ActorChip(run: run, compact: true) }
                 Spacer(minLength: 0)
                 if run.isBlockedOnApproval {
@@ -492,6 +533,15 @@ struct RunLine: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .layoutPriority(1)
+            }
+
+            // Not while the approval chip is up: that one already names the
+            // environment, and the same word twice on a 32pt row is the kind
+            // of duplication that makes a pill look automated rather than
+            // written.
+            if let target = run.deployTarget, !run.isBlockedOnApproval {
+                EnvironmentChip(target: target, size: .compact)
+                    .layoutPriority(2)
             }
 
             if showActor { ActorChip(run: run, compact: true) }

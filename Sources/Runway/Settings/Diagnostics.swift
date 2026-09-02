@@ -74,6 +74,17 @@ enum Diagnostics {
             print("  On a display without a notch the island is a \(Int(restingWidth))pt pill")
             print("  centred under the menu bar.")
         }
+
+        // "Nothing is in my notch" and "something is in my notch" are both
+        // questions this tool now has to answer.
+        let idleMark = Preferences.shared.idleMark
+        print("  idle mark:   \(idleMark ? "on" : "off")"
+            + (placement.hasNotch ? "" : "  (notched displays only — not this one)"))
+        if idleMark, placement.hasNotch {
+            print("  So with nothing running the island does not leave: it stays as a few")
+            print("  points of black under the cutout with the mark in it, blinking. That")
+            print("  is the dot you are looking at.")
+        }
         print()
     }
 
