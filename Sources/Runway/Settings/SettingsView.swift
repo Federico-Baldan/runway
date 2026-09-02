@@ -7,10 +7,16 @@ public final class SettingsWindowController {
     private var window: NSWindow?
     private let model: IslandModel
     private let onTokenChanged: () -> Void
+    private let onRestoreDismissed: () -> Void
 
-    public init(model: IslandModel, onTokenChanged: @escaping () -> Void) {
+    public init(
+        model: IslandModel,
+        onTokenChanged: @escaping () -> Void,
+        onRestoreDismissed: @escaping () -> Void = {}
+    ) {
         self.model = model
         self.onTokenChanged = onTokenChanged
+        self.onRestoreDismissed = onRestoreDismissed
     }
 
     public func show() {
@@ -23,6 +29,7 @@ public final class SettingsWindowController {
         let view = SettingsView(
             model: model,
             onTokenChanged: onTokenChanged,
+            onRestoreDismissed: onRestoreDismissed,
             onClose: { [weak self] in self?.close() }
         )
 
@@ -48,6 +55,7 @@ public final class SettingsWindowController {
 struct SettingsView: View {
     @Bindable var model: IslandModel
     let onTokenChanged: () -> Void
+    var onRestoreDismissed: () -> Void = {}
     let onClose: () -> Void
 
     @State private var preferences = Preferences.shared
@@ -64,6 +72,11 @@ struct SettingsView: View {
     @State private var newActor = ""
     @State private var actorError: String?
     @State private var newRepository = ""
+    /// Runs the user has taken off the island by hand. Read once when the pane
+    /// appears rather than on every body pass — it is a `UserDefaults` lookup
+    /// and it only changes from the island, which is not on screen behind this
+    /// window.
+    @State private var dismissedCount = 0
 
     enum TokenStatus: Equatable {
         case unknown
@@ -727,7 +740,37 @@ struct SettingsView: View {
                     .padding(.leading, 2)
             }
 
+            // Only when there is something to say. A permanent row reading
+            // "0 runs hidden" is a setting that describes the absence of a
+            // thing, and the island's × is discoverable enough that most
+            // people will never see this at all.
+            if dismissedCount > 0 {
+                Divider().padding(.vertical, 4)
+
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(dismissedCount == 1
+                             ? "1 run hidden from the island"
+                             : "\(dismissedCount) runs hidden from the island")
+                            .font(.system(size: 12, weight: .medium))
+                        Text("Hiding is local and temporary: the runs are untouched on "
+                             + "GitHub, and each one is forgotten by itself after a "
+                             + "fortnight. A re-run always comes back.")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer()
+                    Button("Show them again") {
+                        onRestoreDismissed()
+                        DismissedRuns.restore()
+                        dismissedCount = 0
+                    }
+                    .controlSize(.small)
+                }
+            }
         }
+        .onAppear { dismissedCount = DismissedRuns.count() }
     }
 
     // MARK: - Alerts

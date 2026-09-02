@@ -137,6 +137,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controller = NotchPanelController(
             model: model,
             onOpen: { [weak self] run in self?.open(run) },
+            onDismiss: { [weak self] run in self?.dismiss(run) },
             onQuit: { NSApplication.shared.terminate(nil) }
         )
         panelController = controller
@@ -163,7 +164,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // on it, so the "already told you about this" record goes too.
                 ApprovalNotifier.resetBaseline()
                 self?.resetForNewToken()
-            }
+            },
+            onRestoreDismissed: { [weak self] in self?.restoreDismissed() }
         )
         Haptics.isEnabled = Preferences.shared.haptics
         ApprovalNotifier.isEnabled = Preferences.shared.approvalNotifications
@@ -327,11 +329,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startMonitoring() {
         let monitor = self.monitor
         let model = self.model
+        // Read here, on the main actor, and handed across — so the ordering
+        // below is the only ordering that has to hold.
+        let dismissed = DismissedRuns.load()
 
         streamTask = Task.detached {
             // Subscribe before starting, so the first poll's result cannot land
             // before there is anything listening for it.
             let stream = await monitor.stateStream()
+            // And adopt the dismissals before `start()`, in this same task
+            // rather than a second detached one: two tasks racing into the same
+            // actor have no order, and the one that loses puts a run the user
+            // hid yesterday back on the island for a frame this morning.
+            await monitor.adoptDismissed(dismissed) { identities in
+                // Hopped rather than written where it is called: this closure
+                // runs on the monitor's executor, and the store is main-actor
+                // work. Fire and forget — nothing waits on a preference write.
+                Task { @MainActor in DismissedRuns.save(identities) }
+            }
             // `start()` spawns the loop and returns; it does not block, which
             // is why the task that used to wrap it had always finished long
             // before the `cancel()` that followed this loop.
@@ -422,6 +437,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let url = run.webURL() else { return }
         NSWorkspace.shared.open(url)
     }
+
+    /// Take one run off the island, and remember that across launches.
+    ///
+    /// Local. Nothing is sent to GitHub — see `DismissedRuns` for why that is
+    /// the design and not a shortfall.
+    private func dismiss(_ run: WorkflowRun) {
+        let monitor = self.monitor
+        let identity = run.identity
+        Task.detached { await monitor.dismiss(identity) }
+    }
+
+    /// Restore every dismissed run. Wired to the Settings button.
+    private func restoreDismissed() {
+        let monitor = self.monitor
+        Task.detached { await monitor.restoreDismissed() }
+    }
+
+
 
     // MARK: - Snapshots
 

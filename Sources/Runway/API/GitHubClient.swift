@@ -433,6 +433,27 @@ public actor GitHubClient {
         )
     }
 
+    /// Who has already answered this run's deployment gates, and how.
+    ///
+    /// The endpoint that makes `RunStatus.rejected` possible. Same **Actions:
+    /// Read** permission as `/actions/runs` and `pending_deployments` — GitHub
+    /// lists all three together — so the one thing the runs list cannot tell
+    /// you about a red run costs nothing on the token.
+    ///
+    /// Rarer even than `fetchPendingDeployments`, and permanently cached by the
+    /// monitor once it answers: it is only ever asked about a run that has
+    /// already finished, and a finished run's review history does not move
+    /// again. See `RunMonitor.shouldFetchReviewHistory`.
+    public func fetchReviewHistory(
+        repository: String,
+        runID: Int
+    ) async throws -> Conditional<[DeploymentReview]> {
+        try await get(
+            path: "/repos/\(repository)/actions/runs/\(runID)/approvals",
+            cacheKey: "approvals:\(repository):\(runID)"
+        )
+    }
+
     // MARK: - Transport
 
     /// One conditional GET, decoded.

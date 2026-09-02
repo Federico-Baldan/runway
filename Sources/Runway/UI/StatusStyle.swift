@@ -65,6 +65,13 @@ enum StatusStyle {
         if status.isFailure { return StatusPalette.failure }
         switch status {
         case .success: return StatusPalette.success
+        // A rejection lands in the quiet grey with `cancelled` and `skipped`,
+        // and not — the temptation — in the approval amber it came out of.
+        // Amber is the colour of a question still open; this one has been
+        // answered, by the person looking at the island, on purpose. Anything
+        // warmer would keep pulling the eye back to a decision already made,
+        // which is the complaint that put `.rejected` in the app to begin with.
+        // It gets its own *mark* instead — see `outlineMark`.
         default: return StatusPalette.quiet
         }
     }
@@ -81,6 +88,10 @@ enum StatusStyle {
         switch status {
         case .success: return "checkmark.circle.fill"
         case .failure, .startupFailure: return "xmark.circle.fill"
+        // The same cross, hollow. Whatever was going to happen did not happen —
+        // but a filled disc in the menu bar is the app raising its voice, and a
+        // rejection is not something to raise your voice about.
+        case .rejected: return "xmark.circle"
         case .timedOut: return "clock.badge.xmark"
         case .cancelled: return "slash.circle"
         case .skipped: return "arrow.right.circle"
@@ -237,8 +248,17 @@ struct StatusGlyph: View {
     }
 
     /// Settled, but not news — drawn as an outline so it recedes.
+    ///
+    /// `.rejected` keeps the cross, because something really did not go
+    /// through and a dash would undersell that. Hollow and grey rather than a
+    /// filled red disc is the entire distinction the state exists to draw: the
+    /// deploy did not happen, and nobody needs to go and find out why.
     private var outlineMark: StatusMarkShape.Kind {
-        status == .skipped ? .chevron : .dash
+        switch status {
+        case .skipped: return .chevron
+        case .rejected: return .cross
+        default: return .dash
+        }
     }
 
     private func disc(_ kind: StatusMarkShape.Kind) -> some View {

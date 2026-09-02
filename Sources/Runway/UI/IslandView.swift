@@ -11,6 +11,8 @@ struct IslandView: View {
     /// Notch width, so the resting island is never narrower than the cutout.
     var notchWidth: CGFloat = 0
     let onOpen: (WorkflowRun) -> Void
+    /// Take one run off the island. Local — see `DismissedRuns`.
+    var onDismiss: (WorkflowRun) -> Void = { _ in }
     let onQuit: () -> Void
     /// Routed through the controller so the resize is sequenced around the animation.
     var onHoverChange: (Bool) -> Void = { _ in }
@@ -259,7 +261,8 @@ struct IslandView: View {
                         run: run,
                         now: model.now,
                         showActor: model.showsMultipleActors,
-                        onOpen: onOpen
+                        onOpen: onOpen,
+                        onDismiss: onDismiss
                     )
                     .transition(
                         .asymmetric(
@@ -318,7 +321,12 @@ struct IslandView: View {
     private var expanded: some View {
         VStack(alignment: .leading, spacing: 2) {
             ForEach(model.expandedDetail) { run in
-                JobDetail(run: run, showActor: model.showsMultipleActors, onOpen: onOpen)
+                JobDetail(
+                    run: run,
+                    showActor: model.showsMultipleActors,
+                    onOpen: onOpen,
+                    onDismiss: onDismiss
+                )
                     .transition(
                         .asymmetric(
                             insertion: .move(edge: .top).combined(with: .opacity),
@@ -389,6 +397,7 @@ struct JobDetail: View {
     let run: WorkflowRun
     var showActor: Bool = false
     var onOpen: (WorkflowRun) -> Void = { _ in }
+    var onDismiss: (WorkflowRun) -> Void = { _ in }
 
     @State private var isHovering = false
 
@@ -420,6 +429,20 @@ struct JobDetail: View {
                 if run.isBlockedOnApproval {
                     ApprovalChip(run: run)
                 }
+                Button {
+                    onDismiss(run)
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 7.5, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.55))
+                        .frame(width: 14, height: 14)
+                        .background(Circle().fill(Color.white.opacity(0.12)))
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .opacity(isHovering ? 1 : 0)
+                .help("Hide this run — it stays on GitHub")
+                .accessibilityLabel(Text("Hide this run"))
             }
 
             if run.jobList.isEmpty {
@@ -494,6 +517,19 @@ struct JobDetail: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
+
+            // The mirror of the line above, for a gate that has been answered.
+            // Worth its own row rather than a tooltip: the run is drawn grey
+            // and crossed out, and "why is this one not red" is a question
+            // somebody will ask exactly once before they stop trusting the
+            // colour. One line settles it.
+            if let rejection = run.rejectionSummary {
+                Text(rejectionLine(rejection))
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.5))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
@@ -507,6 +543,12 @@ struct JobDetail: View {
             withAnimation(.easeOut(duration: 0.14)) { isHovering = hovering }
         }
         .onTapGesture { onOpen(run) }
+    }
+
+    /// The rejection, with the reviewer's comment when they left one.
+    private func rejectionLine(_ summary: String) -> String {
+        guard let comment = run.rejectionComment else { return summary }
+        return "\(summary) — “\(comment)”"
     }
 
     /// `reviewers: @alice, @acme/platform`, when GitHub told us who they are.
@@ -528,6 +570,7 @@ struct RunLine: View {
     let now: Date
     var showActor: Bool = false
     let onOpen: (WorkflowRun) -> Void
+    var onDismiss: (WorkflowRun) -> Void = { _ in }
 
     @State private var isHovering = false
 
@@ -586,6 +629,15 @@ struct RunLine: View {
             Spacer(minLength: 4)
 
             timing
+
+            // Reserved whether or not it is drawn. Appearing on hover is what
+            // keeps a destructive-looking control off a pill that is mostly
+            // read at a glance; reserving the width is what stops the row
+            // reflowing — and the duration next to it jumping — the instant the
+            // pointer arrives.
+            dismissControl
+                .frame(width: 15)
+                .opacity(isHovering ? 1 : 0)
         }
         .padding(.horizontal, 12)
         .frame(height: 32)
@@ -638,7 +690,36 @@ struct RunLine: View {
         return IslandFormat.duration(now.timeIntervalSince(since))
     }
 
+    /// Take this run off the island.
+    ///
+    /// A cross, not a bin. Nothing is deleted: the run is untouched on GitHub,
+    /// which is what the help text says out loud, because a cross on a row of
+    /// somebody's CI is exactly the control people are right to hesitate over.
+    private var dismissControl: some View {
+        Button {
+            onDismiss(run)
+        } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 7.5, weight: .bold))
+                .foregroundStyle(.white.opacity(0.6))
+                .frame(width: 15, height: 15)
+                .background(Circle().fill(Color.white.opacity(0.12)))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help("Hide this run — it stays on GitHub")
+        .accessibilityLabel(Text("Hide this run"))
+    }
+
     private var helpText: String {
+        // The rejection first. It is the one status where GitHub's own word for
+        // the run and the true one disagree, so it is the one worth spelling
+        // out rather than leaving to a grey glyph.
+        if let rejection = run.rejectionSummary {
+            let comment = run.rejectionComment.map { " — “\($0)”" } ?? ""
+            return "\(run.repository) #\(run.runNumber) — \(rejection)\(comment)."
+                + " Nothing failed. Click to open it on GitHub."
+        }
         if let summary = run.approvalSummary {
             return "\(run.repository) #\(run.runNumber) — \(summary). Click to open it on GitHub."
         }

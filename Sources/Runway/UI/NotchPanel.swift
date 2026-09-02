@@ -60,6 +60,7 @@ public final class NotchPanelController {
     private let model: IslandModel
     private let hostingView: PassthroughHostingView<AnyView>
     private let onOpen: (WorkflowRun) -> Void
+    private let onDismiss: (WorkflowRun) -> Void
     private let onQuit: () -> Void
 
     /// Which display to render on.
@@ -99,10 +100,12 @@ public final class NotchPanelController {
     public init(
         model: IslandModel,
         onOpen: @escaping (WorkflowRun) -> Void,
+        onDismiss: @escaping (WorkflowRun) -> Void = { _ in },
         onQuit: @escaping () -> Void
     ) {
         self.model = model
         self.onOpen = onOpen
+        self.onDismiss = onDismiss
         self.onQuit = onQuit
 
         panel = IslandPanel(
@@ -151,6 +154,7 @@ public final class NotchPanelController {
                 notchHeight: currentPlacement?.notchHeight ?? 0,
                 notchWidth: currentPlacement?.notchWidth ?? 0,
                 onOpen: onOpen,
+                onDismiss: onDismiss,
                 onQuit: onQuit,
                 onHoverChange: { [weak self] hovering in
                     self?.setExpanded(hovering)

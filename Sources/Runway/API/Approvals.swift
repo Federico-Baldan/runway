@@ -173,6 +173,83 @@ public struct DeploymentReviewer: Codable, Sendable, Hashable, Identifiable {
     public var handle: String { "@\(name)" }
 }
 
+// MARK: - Review history
+
+/// One answer already given to a deployment gate.
+///
+/// Decoded from `GET /repos/{owner}/{repo}/actions/runs/{run_id}/approvals`,
+/// the mirror of `pending_deployments`: that endpoint lists the reviews a run is
+/// still waiting on, this one lists the reviews it has received. Same **Actions:
+/// Read** permission, so it costs the token nothing extra — which is the only
+/// reason Runway can answer the question at all.
+///
+/// The question being: *why is this run red?* GitHub reports a deployment a
+/// reviewer turned down as `conclusion: "failure"`, indistinguishable in the
+/// runs list from a build that fell over. Here it is `state: "rejected"`, with
+/// the person and their comment attached. See `RunStatus.rejected`.
+public struct DeploymentReview: Codable, Sendable, Hashable {
+    public enum State: String, Codable, Sendable {
+        case approved
+        case rejected
+        /// A gate somebody has opened the dialog on but not answered.
+        case pending
+        case unknown
+    }
+
+    public let state: State
+    /// Who answered. Optional because a review recorded by an app or by a
+    /// deleted account can arrive without one.
+    public let user: GitHubActor?
+    /// What they typed in the box. Empty far more often than not.
+    public let comment: String
+    /// The environments this one answer covered — a reviewer approving a run
+    /// parked on two of them produces one review naming both.
+    public let environments: [PendingDeployment.Environment]
+
+    public init(
+        state: State,
+        user: GitHubActor? = nil,
+        comment: String = "",
+        environments: [PendingDeployment.Environment] = []
+    ) {
+        self.state = state
+        self.user = user
+        self.comment = comment
+        self.environments = environments
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case state, user, comment, environments
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let raw = try container.decodeIfPresent(String.self, forKey: .state) ?? ""
+        // Unrecognised rather than thrown. A new state on this endpoint would
+        // otherwise fail the decode and take the whole review history with it,
+        // and a run drawn as a plain failure is a much better outcome than a
+        // poll that errors — which is exactly what the app did before there was
+        // any of this.
+        state = State(rawValue: raw.lowercased()) ?? .unknown
+        user = try container.decodeIfPresent(GitHubActor.self, forKey: .user)
+        comment = try container.decodeIfPresent(String.self, forKey: .comment) ?? ""
+        environments = try container.decodeIfPresent(
+            [PendingDeployment.Environment].self, forKey: .environments
+        ) ?? []
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(state.rawValue, forKey: .state)
+        try container.encodeIfPresent(user, forKey: .user)
+        try container.encode(comment, forKey: .comment)
+        try container.encode(environments, forKey: .environments)
+    }
+
+    /// `@alice`, the way GitHub writes it.
+    public var handle: String? { user.map { "@\($0.login)" } }
+}
+
 // MARK: - The check
 
 /// Does this run need a person, and does it need *you*?
@@ -315,6 +392,22 @@ public extension WorkflowRun {
         case .clear:
             return nil
         }
+    }
+
+    /// The sentence for a run somebody turned down, or `nil` for every other
+    /// run.
+    ///
+    /// Deliberately names the person. "Rejected" on its own invites the same
+    /// question every time — *by whom?* — and this is a status app: the whole
+    /// point is not having to open a browser to find out.
+    var rejectionSummary: String? {
+        guard status == .rejected else { return nil }
+        let environments = decisiveReview?.environments.map(\.name) ?? []
+        let destination = environments.isEmpty
+            ? ""
+            : " to \(environments.joined(separator: ", "))"
+        guard let who = rejectedBy else { return "deploy\(destination) was rejected" }
+        return "@\(who) rejected the deploy\(destination)"
     }
 
     /// How far through its steps the run is, `0…1`.

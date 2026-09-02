@@ -20,6 +20,9 @@ public enum DemoData {
         let steps: [(String, String, RunStatus)]
         /// Environments the run is parked on, if any.
         var pending: [PendingDeployment] = []
+        /// Deployment reviews already given — the half that turns a red run
+        /// into a rejected one.
+        var reviews: [DeploymentReview] = []
     }
 
     /// The environment a demo deploy waits on, with this account on the
@@ -115,6 +118,42 @@ public enum DemoData {
                       ("release", "deploy", .success)]),
     ]
 
+    /// A deploy that reaches its gate and is turned down.
+    ///
+    /// GitHub reports the last frame as `conclusion: "failure"`, which is what
+    /// the run status here is — the whole point is that nothing about the
+    /// payload says otherwise. The review history is what carries the truth,
+    /// and `stampRejection()` in the builder is what reads it, so this exercises
+    /// the real path rather than a hand-set `.rejected`.
+    ///
+    /// Hard to see otherwise: reproducing it needs a protected environment, a
+    /// deploy job and the nerve to reject your own production deploy.
+    static let rejectionScript: [Frame] = [
+        Frame(at: 0, runStatus: .inProgress,
+              jobs: [("terraform-plan", .inProgress), ("terraform-apply", .queued)],
+              steps: [("init", "terraform-plan", .success),
+                      ("plan", "terraform-plan", .inProgress)]),
+
+        Frame(at: 5, runStatus: .waiting,
+              jobs: [("terraform-plan", .success), ("terraform-apply", .waiting)],
+              steps: [("init", "terraform-plan", .success),
+                      ("plan", "terraform-plan", .success)],
+              pending: [production(canApprove: true)]),
+
+        // The gate job is red with no steps under it, because nothing in it
+        // ever ran. That, plus the history, is the whole tell.
+        Frame(at: 12, runStatus: .failure,
+              jobs: [("terraform-plan", .success), ("terraform-apply", .failure)],
+              steps: [("init", "terraform-plan", .success),
+                      ("plan", "terraform-plan", .success)],
+              reviews: [DeploymentReview(
+                  state: .rejected,
+                  user: GitHubActor(login: "you"),
+                  comment: "not on a Friday",
+                  environments: [PendingDeployment.Environment(id: 4_211, name: "production")]
+              )]),
+    ]
+
     /// Build one run from a script frame.
     static func run(
         frame: Frame,
@@ -161,12 +200,16 @@ public enum DemoData {
             triggeringActor: GitHubActor(login: login),
             repository: repository,
             jobs: jobs,
-            pendingDeployments: frame.pending
+            pendingDeployments: frame.pending,
+            reviews: frame.reviews
         )
         // What `RunMonitor` does to every real run once its detail has landed.
         // Without it the demo is the one place the island draws runs with no
         // environment on them, which is the state hardest to notice is missing.
         .stampingDeployTarget()
+        // And the same for a run somebody turned down, in the same order the
+        // monitor does it: the target first, the relabelling after.
+        .stampingRejection()
     }
 
     /// A state with one run in it.
@@ -223,7 +266,7 @@ public enum DemoData {
             var cycle = 0
             while !Task.isCancelled {
                 let startedAt = Date()
-                switch cycle % 4 {
+                switch cycle % 5 {
                 case 0:
                     for frame in script {
                         guard !Task.isCancelled else { return }
@@ -242,6 +285,15 @@ public enum DemoData {
                         try? await Task.sleep(nanoseconds: 2_600_000_000)
                     }
                 case 2:
+                    for frame in rejectionScript {
+                        guard !Task.isCancelled else { return }
+                        model.apply(state(frame: frame, repository: "acme/infra",
+                                          id: 90_400 + cycle, runNumber: 71 + cycle,
+                                          branch: "main", login: "you",
+                                          startedAt: startedAt))
+                        try? await Task.sleep(nanoseconds: 2_600_000_000)
+                    }
+                case 3:
                     for frame in failScript {
                         guard !Task.isCancelled else { return }
                         model.apply(state(frame: frame, repository: "acme/api",

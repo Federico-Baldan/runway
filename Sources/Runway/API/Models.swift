@@ -36,6 +36,23 @@ public enum RunStatus: String, Codable, Sendable, CaseIterable {
     case startupFailure
     case stale
 
+    /// A person was asked, and said no.
+    ///
+    /// **Never decoded**, because GitHub has no such conclusion. A deployment a
+    /// required reviewer turns down is reported as `conclusion: "failure"` —
+    /// the API being literal, since the job never ran — and that is wrong about
+    /// the only thing anybody wants to know from across the room, which is
+    /// whether something *broke*. Nothing broke. Somebody decided.
+    ///
+    /// The truth is one request away, on
+    /// `/actions/runs/{id}/approvals`, where the same rejection reads
+    /// `state: "rejected"` with the reviewer and their comment attached.
+    /// `RunMonitor` fetches it for the runs that look like this, and
+    /// `WorkflowRun.stampRejection()` puts this case here in place of
+    /// `.failure` — the same stamping the repository and the deploy target get,
+    /// and for the same reason: the run payload alone cannot answer it.
+    case rejected
+
     case unknown
 
     /// Fuse GitHub's `status` + `conclusion` pair into one value.
@@ -77,7 +94,7 @@ public enum RunStatus: String, Codable, Sendable, CaseIterable {
         case .queued, .inProgress, .waiting, .requested, .pending:
             return true
         case .success, .failure, .cancelled, .skipped, .neutral, .timedOut,
-             .actionRequired, .startupFailure, .stale, .unknown:
+             .actionRequired, .startupFailure, .stale, .rejected, .unknown:
             return false
         }
     }
@@ -90,7 +107,7 @@ public enum RunStatus: String, Codable, Sendable, CaseIterable {
     public var isTerminal: Bool {
         switch self {
         case .success, .failure, .cancelled, .skipped, .timedOut,
-             .startupFailure, .stale, .neutral:
+             .startupFailure, .stale, .neutral, .rejected:
             return true
         case .actionRequired, .queued, .inProgress, .waiting, .requested,
              .pending, .unknown:
@@ -99,6 +116,13 @@ public enum RunStatus: String, Codable, Sendable, CaseIterable {
     }
 
     /// Anything a human would read as "this broke".
+    ///
+    /// `.rejected` is deliberately **not** here, and it is the reason the case
+    /// exists. GitHub calls a turned-down deployment a failure; a person who
+    /// turned it down themselves five minutes ago does not, and every red thing
+    /// this app draws is a claim that somebody needs to go and look at it. A
+    /// rejection has already been looked at. It is a decision, so it settles
+    /// next to `.cancelled` — quiet, finished, nobody's problem.
     public var isFailure: Bool {
         switch self {
         case .failure, .timedOut, .startupFailure:
@@ -230,7 +254,9 @@ public struct Step: Codable, Sendable, Hashable, Identifiable {
 public struct Job: Codable, Sendable, Hashable, Identifiable {
     public let id: Int
     public let name: String
-    public let status: RunStatus
+    /// Settable only from inside the module, for the one thing the payload
+    /// cannot say on its own — see `markRejected()`.
+    public private(set) var status: RunStatus
     public let startedAt: Date?
     public let completedAt: Date?
     public let htmlURL: String?
@@ -286,6 +312,19 @@ public struct Job: Codable, Sendable, Hashable, Identifiable {
         try container.encode(steps, forKey: .steps)
     }
 
+    /// Re-read this job as a rejection rather than a failure.
+    ///
+    /// Only ever called on a job inside a run whose review history says
+    /// `rejected`, and only when the job **failed with no steps at all** —
+    /// which is the exact shape of a deployment gate that was turned down: the
+    /// job exists, it is red, and nothing inside it ever ran. A job in the same
+    /// run that failed with steps behind it broke for its own reasons and keeps
+    /// its cross.
+    mutating func markRejected() {
+        guard status == .failure, steps.isEmpty else { return }
+        status = .rejected
+    }
+
     /// Steps still executing.
     public var runningSteps: [Step] { steps.filter { $0.status == .inProgress } }
 
@@ -318,7 +357,9 @@ public struct WorkflowRun: Codable, Sendable, Hashable, Identifiable {
     public let headSHA: String?
     /// What kicked it off: `push`, `pull_request`, `schedule`, `workflow_dispatch`…
     public let event: String?
-    public let status: RunStatus
+    /// The fused status. Settable only from inside the module, and only by
+    /// `stampRejection()` — see `RunStatus.rejected`.
+    public private(set) var status: RunStatus
     public let htmlURL: String?
     public let createdAt: Date?
     public let updatedAt: Date?
@@ -344,6 +385,18 @@ public struct WorkflowRun: Codable, Sendable, Hashable, Identifiable {
     /// comes from `/actions/runs/{id}/pending_deployments`, which the same
     /// **Actions: Read** permission already covers.
     public var pendingDeployments: [PendingDeployment] = []
+
+    /// Who has already answered the deployment question, and how.
+    ///
+    /// The counterpart to `pendingDeployments`, from
+    /// `/actions/runs/{id}/approvals`: that one is the reviews still owed, this
+    /// one is the reviews given. Stamped, not decoded, and — like the pending
+    /// list — asked for only when the run's own shape says it is worth a
+    /// request. See `RunMonitor.shouldFetchReviewHistory`.
+    ///
+    /// It exists for one answer the rest of the API refuses to give: whether a
+    /// red run is red because it broke or because somebody said no.
+    public var reviews: [DeploymentReview] = []
 
     /// Where this run is deploying, if anything about it says so.
     ///
@@ -374,7 +427,8 @@ public struct WorkflowRun: Codable, Sendable, Hashable, Identifiable {
         triggeringActor: GitHubActor? = nil,
         repository: String = "",
         jobs: [Job] = [],
-        pendingDeployments: [PendingDeployment] = []
+        pendingDeployments: [PendingDeployment] = [],
+        reviews: [DeploymentReview] = []
     ) {
         self.id = id
         self.name = name
@@ -395,6 +449,7 @@ public struct WorkflowRun: Codable, Sendable, Hashable, Identifiable {
         self.repository = repository
         self.jobs = jobs
         self.pendingDeployments = pendingDeployments
+        self.reviews = reviews
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -458,6 +513,73 @@ public struct WorkflowRun: Codable, Sendable, Hashable, Identifiable {
 
     /// Stable identity for one run attempt.
     public var identity: String { "\(repository)#\(id)/\(runAttempt)" }
+
+    /// Re-read a GitHub "failure" as the rejection it actually was.
+    ///
+    /// Called once the review history has landed, and a no-op for every run
+    /// that has none — which is nearly all of them. Three guards, each of them
+    /// a way this could otherwise paint a real breakage as somebody's decision:
+    ///
+    ///  * The run must be `.failure` exactly — the one conclusion GitHub uses
+    ///    for a rejection. A timeout or a startup failure is also `isFailure`
+    ///    and is also, unambiguously, something that broke.
+    ///  * Somebody must actually have rejected something.
+    ///  * **And the jobs, once known, must corroborate it.** This is the guard
+    ///    that matters. The endpoint is keyed on the run *id*, not the attempt,
+    ///    so a run rejected on attempt 1 and re-run into a genuine terraform
+    ///    failure on attempt 2 still answers `rejected` — and calling that a
+    ///    rejection would hide a real broken deploy behind a grey glyph. A gate
+    ///    that was turned down leaves a job that is red with **no steps at
+    ///    all**, because nothing in it ever ran; a job that broke has the steps
+    ///    that broke. Requiring one of the former is what separates the two.
+    ///
+    /// Jobs with no detail yet are the one exception: a run whose jobs have not
+    /// been fetched has nothing to corroborate with, and the rejection is still
+    /// the better answer than a red cross.
+    mutating func stampRejection() {
+        guard status == .failure else { return }
+        guard reviews.contains(where: { $0.state == .rejected }) else { return }
+        if !jobs.isEmpty {
+            guard jobs.contains(where: { $0.status == .failure && $0.steps.isEmpty })
+            else { return }
+        }
+        status = .rejected
+        for index in jobs.indices { jobs[index].markRejected() }
+    }
+
+    /// `stampRejection()` as a chainable copy, for building fixtures.
+    func stampingRejection() -> WorkflowRun {
+        var copy = self
+        copy.stampRejection()
+        return copy
+    }
+
+    /// The rejection this run is being drawn as, for the words hanging off it.
+    ///
+    /// The **last** one in the order GitHub returned. The review objects carry
+    /// no timestamp of their own — `state`, `user`, `comment` and the
+    /// environments, and that is the whole schema — so on the rare run with
+    /// more than one rejection in its history this is the response's ordering
+    /// being trusted for a name in a tooltip, and nothing more. Which run is
+    /// rejected has already been decided above, on evidence that does not
+    /// depend on it.
+    public var decisiveReview: DeploymentReview? {
+        reviews.last { $0.state == .rejected } ?? reviews.last
+    }
+
+    /// The login of whoever turned this deployment down.
+    public var rejectedBy: String? {
+        guard status == .rejected else { return nil }
+        return decisiveReview?.user?.login
+    }
+
+    /// What the reviewer typed in the box, when they typed anything.
+    public var rejectionComment: String? {
+        guard status == .rejected,
+              let comment = decisiveReview?.comment,
+              !comment.isEmpty else { return nil }
+        return comment
+    }
 
     public var isActive: Bool { status.isActive }
 
@@ -551,11 +673,17 @@ public struct WorkflowRun: Codable, Sendable, Hashable, Identifiable {
             .map { "\($0.environment.name):\($0.currentUserCanApprove)" }
             .sorted()
             .joined(separator: ",")
+        // The decisive review, not the whole history. A rejection already moves
+        // `status`, so this is here for the *words* hanging off it — who said
+        // no, and what they typed — which arrive in the same response and would
+        // otherwise reach a tooltip nobody redrew.
+        let reviewPart = decisiveReview
+            .map { "\($0.state.rawValue):\($0.user?.login ?? "")" } ?? ""
         // The target moves when the jobs land, and again if a gate turns a
         // guess read off a job name into the name GitHub actually uses.
         let environmentPart = deployTarget.map { "\($0.name):\($0.tier.rawValue)" } ?? ""
         return "\(identity)|\(status.rawValue)|\(jobPart)|\(stepPart)"
-            + "|\(approvalPart)|\(environmentPart)"
+            + "|\(approvalPart)|\(environmentPart)|\(reviewPart)"
     }
 }
 

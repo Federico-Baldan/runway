@@ -155,6 +155,29 @@ public actor RunMonitor {
     /// "waiting for you to approve production" and a bare "waiting".
     private var approvalCache: [String: [PendingDeployment]] = [:]
 
+    /// Review history, keyed the same way — and unlike the two above, this one
+    /// is an answer rather than a fallback.
+    ///
+    /// A run is only ever asked about once. The endpoint is asked exclusively
+    /// about runs that have already **finished**, and a finished run's review
+    /// history is immutable, so a second request could only ever return what is
+    /// already here. An entry therefore doubles as the "already asked" marker,
+    /// empty array included: a failed run with no reviews at all is a run that
+    /// simply broke, and re-asking it every five seconds for the ten minutes it
+    /// lingers on the island is the exact cost this records to avoid.
+    private var reviewCache: [String: [DeploymentReview]] = [:]
+
+    /// Runs the user has taken off the island by hand.
+    ///
+    /// Held here rather than filtered in the view so that everything reading a
+    /// `MonitorState` — the island, the menu bar item, the notifier — agrees
+    /// about what is on screen. Seeded from `Preferences` at launch and written
+    /// back through `onDismissedChange`; see `DismissedRuns`.
+    private var dismissed: Set<String> = []
+
+    /// Called when `dismissed` changes, so the choice outlives the launch.
+    private var onDismissedChange: (@Sendable (Set<String>) -> Void)?
+
     public init(client: GitHubClient = GitHubClient(), cadence: Cadence = Cadence()) {
         self.client = client
         self.cadence = cadence
@@ -261,9 +284,65 @@ public actor RunMonitor {
         state.runs = Self.visibleRuns(
             from: unfilteredRuns,
             filter: activeFilter,
-            approvalsFromOthers: includeApprovalsFromOthers
+            approvalsFromOthers: includeApprovalsFromOthers,
+            dismissed: dismissed
         )
         emitIfChanged()
+    }
+
+    // MARK: - Dismissal
+
+    /// Seed the set of runs the user has taken off the island, and say where to
+    /// write changes to it.
+    ///
+    /// Called once at launch with whatever `DismissedRuns` restored.
+    public func adoptDismissed(
+        _ identities: Set<String>,
+        onChange: @escaping @Sendable (Set<String>) -> Void
+    ) {
+        dismissed = identities
+        onDismissedChange = onChange
+        reapplyVisibility()
+    }
+
+    /// Take one run off the island.
+    ///
+    /// Keyed on `identity`, which carries the **attempt** — so dismissing a
+    /// failed deploy and then re-running it puts the new attempt straight back.
+    /// That is the intended behaviour and not a leak: the thing being dismissed
+    /// is a result, and a re-run is a different result.
+    ///
+    /// Local only. Nothing is sent to GitHub, the run is untouched there, and
+    /// `restoreDismissed()` brings every one of them back.
+    public func dismiss(_ identity: String) {
+        guard dismissed.insert(identity).inserted else { return }
+        onDismissedChange?(dismissed)
+        reapplyVisibility()
+    }
+
+    /// Put every dismissed run back.
+    public func restoreDismissed() {
+        guard !dismissed.isEmpty else { return }
+        dismissed = []
+        onDismissedChange?(dismissed)
+        reapplyVisibility()
+    }
+
+    /// Re-derive what is on screen from what the last poll collected.
+    ///
+    /// `force`, because a dismissal is the one state change the emit gate
+    /// cannot see: removing a run leaves `runs` shorter but every remaining
+    /// signature identical, and on a single-run island the whole set can empty
+    /// without the *rate limit* or the *repository count* moving either. The
+    /// gate would hold the frame and the click would appear to do nothing.
+    private func reapplyVisibility() {
+        state.runs = Self.visibleRuns(
+            from: unfilteredRuns,
+            filter: activeFilter,
+            approvalsFromOthers: includeApprovalsFromOthers,
+            dismissed: dismissed
+        )
+        emitIfChanged(force: true)
     }
 
     /// Drop the token-scoped caches. Runs when the token changes.
@@ -466,7 +545,8 @@ public actor RunMonitor {
             state.runs = Self.visibleRuns(
                 from: unfilteredRuns,
                 filter: activeFilter,
-                approvalsFromOthers: includeApprovalsFromOthers
+                approvalsFromOthers: includeApprovalsFromOthers,
+                dismissed: dismissed
             )
             state.repositories = watched.map(\.fullName)
             state.knownActors = seenLogins.sorted { $0.lowercased() < $1.lowercased() }
@@ -591,8 +671,16 @@ public actor RunMonitor {
     static func visibleRuns(
         from runs: [WorkflowRun],
         filter: ActorFilter,
-        approvalsFromOthers: Bool
+        approvalsFromOthers: Bool,
+        dismissed: Set<String> = []
     ) -> [WorkflowRun] {
+        // First, and above every other rule here. A dismissal is the user
+        // saying "not this one" about a specific run, which outranks any
+        // setting that would otherwise put it back — including the approval
+        // opt-in below, whose whole job is to surface runs the filter hid.
+        let runs = dismissed.isEmpty
+            ? runs
+            : runs.filter { !dismissed.contains($0.identity) }
         guard !filter.isEveryone else { return runs }
         let mine = filter.apply(runs)
         guard approvalsFromOthers else { return mine }
@@ -650,6 +738,44 @@ public actor RunMonitor {
         run.status.isAwaitingApproval || run.jobs.contains { $0.status.isAwaitingApproval }
     }
 
+    /// Should this failed run cost one request to find out whether it failed at
+    /// all?
+    ///
+    /// A deployment somebody turned down arrives here as `conclusion:
+    /// "failure"`, identical in the runs list to a build that fell over, and
+    /// the only endpoint that can tell them apart is
+    /// `/actions/runs/{id}/approvals`. Asking it about every failure would put
+    /// a request on every red run on the island for the ten minutes it lingers,
+    /// which is the trap `shouldFetchJobs` and `shouldFetchApprovals` both
+    /// exist to avoid — so this asks once, per run, ever, and only for the two
+    /// shapes a rejection can actually arrive in:
+    ///
+    ///  * **The jobs are known.** Then the tell is exact: a gate that was
+    ///    turned down leaves a job that is red with *no steps at all*, because
+    ///    nothing inside it ever ran. Every ordinary failure has the steps that
+    ///    failed, so nothing else in a normal poll matches this.
+    ///  * **The jobs are not known**, which happens on a cold start — a run
+    ///    that failed before the app opened is past `shouldFetchJobs`'s
+    ///    two-minute window but still inside the ten minutes the island shows
+    ///    failures for. There is nothing to test against, so it falls back to
+    ///    the weakest honest question: does this run look like it deploys
+    ///    anywhere? Only a run with an environment can have been rejected, and
+    ///    `deployTarget` is already stamped from names the poll has in hand.
+    ///
+    /// `alreadyAsked` is what makes the arithmetic hold. Both branches describe
+    /// a *finished* run, whose review history cannot change again, so a second
+    /// request could only ever return the first one's answer.
+    static func shouldFetchReviewHistory(
+        for run: WorkflowRun,
+        alreadyAsked: Bool
+    ) -> Bool {
+        guard !alreadyAsked, run.status == .failure else { return false }
+        if !run.jobs.isEmpty {
+            return run.jobs.contains { $0.status == .failure && $0.steps.isEmpty }
+        }
+        return run.deployTarget != nil
+    }
+
     /// Attach jobs and steps to the runs that warrant them.
     private func attachJobs(to runs: [WorkflowRun]) async throws -> [WorkflowRun] {
         var result: [WorkflowRun] = []
@@ -680,11 +806,16 @@ public actor RunMonitor {
             }
 
             copy.pendingDeployments = await pendingDeployments(for: copy)
-            // Last, because it reads both of the things above: a run parked on
-            // a gate has GitHub's own name for the environment in its pending
-            // deployments, and everything else has to be read off the job and
-            // step names that have just arrived.
+            // Before the review history, which reads `deployTarget` on the cold
+            // path, and after the jobs, which are what the target is mostly
+            // derived from: a run parked on a gate has GitHub's own name for
+            // the environment in its pending deployments, and everything else
+            // has to be read off the job and step names that have just arrived.
             copy.stampDeployTarget()
+            copy.reviews = await reviewHistory(for: copy)
+            // Last of all, because it overwrites `status`, and every gate above
+            // wants to see the status GitHub actually sent.
+            copy.stampRejection()
             result.append(copy)
         }
         return result
@@ -716,6 +847,39 @@ public actor RunMonitor {
         }
     }
 
+    /// Who already answered this run's deployment gates, or nothing at all.
+    ///
+    /// Never throws, for the same reason `pendingDeployments(for:)` does not:
+    /// this is a *correction* to a run the island is already drawing, and a
+    /// deploy that was rejected is at worst drawn as the failure GitHub calls
+    /// it — which is exactly what happened before this existed. Taking out
+    /// every other repository's runs to relabel one of them would be a bad
+    /// trade.
+    ///
+    /// A refusal is cached as an empty history all the same. The endpoint can
+    /// 403 on a repository whose environments the token cannot see while
+    /// `/actions/runs` on the same repository answers 200, and that refusal
+    /// will not change on the next tick either.
+    private func reviewHistory(for run: WorkflowRun) async -> [DeploymentReview] {
+        if let cached = reviewCache[run.identity] { return cached }
+        guard Self.shouldFetchReviewHistory(for: run, alreadyAsked: false) else { return [] }
+        do {
+            let response = try await client.fetchReviewHistory(
+                repository: run.repository,
+                runID: run.id
+            )
+            reviewCache[run.identity] = response.value
+            return response.value
+        } catch let error as GitHubError where error.isRetryable {
+            // The network being down is not an answer. Leave the slot empty so
+            // the next poll asks again.
+            return []
+        } catch {
+            reviewCache[run.identity] = []
+            return []
+        }
+    }
+
     /// Drop cached job detail for runs that have left the window.
     ///
     /// Keyed on the *unfiltered* set on purpose: pruning against what is
@@ -724,6 +888,7 @@ public actor RunMonitor {
     private func pruneJobCache(keeping identities: Set<String>) {
         jobCache = jobCache.filter { identities.contains($0.key) }
         approvalCache = approvalCache.filter { identities.contains($0.key) }
+        reviewCache = reviewCache.filter { identities.contains($0.key) }
     }
 
     /// Poll cadence for the next tick, as a pure function of its inputs.
