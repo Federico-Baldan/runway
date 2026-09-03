@@ -619,7 +619,6 @@ public struct WorkflowRun: Codable, Sendable, Hashable, Identifiable {
 
     public var jobList: [Job] { jobs }
     public var runningJobs: [Job] { jobs.filter { $0.status.isActive } }
-    public var failedJobs: [Job] { jobs.filter { $0.status.isFailure } }
 
     /// Steps currently executing, across every job.
     public var runningSteps: [Step] { jobs.flatMap(\.runningSteps) }
@@ -733,16 +732,6 @@ public struct Repository: Codable, Sendable, Hashable, Identifiable {
         isFork = try container.decodeIfPresent(Bool.self, forKey: .isFork) ?? false
         pushedAt = try container.decodeIfPresent(Date.self, forKey: .pushedAt)
         owner = try container.decodeIfPresent(GitHubActor.self, forKey: .owner)
-    }
-
-    /// `owner` half of `owner/repo`.
-    public var ownerLogin: String {
-        fullName.split(separator: "/").first.map(String.init) ?? ""
-    }
-
-    /// `repo` half of `owner/repo`.
-    public var shortName: String {
-        fullName.split(separator: "/").last.map(String.init) ?? fullName
     }
 }
 

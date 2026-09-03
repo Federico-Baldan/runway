@@ -1051,6 +1051,13 @@ struct SettingsView: View {
     private func loadOrganizations(force: Bool = false) {
         guard TokenCache.shared.token() != nil else { return }
         guard force || organizations.isEmpty else { return }
+        // Two call sites can fire in the same frame — the picker's `onAppear`
+        // and the tap that selected the scope it appeared under — and neither
+        // `force` nor the empty check separates them, since the first request
+        // has not come back yet when the second is made. One `Reload` click
+        // while the first is still in flight does the same. Whichever landed
+        // last won, so a stale response could overwrite a newer one.
+        guard !isLoadingOrganizations else { return }
         isLoadingOrganizations = true
         Task {
             let client = GitHubClient(baseURL: GitHubClient.baseURL(for: Preferences.shared.host))

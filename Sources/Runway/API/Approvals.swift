@@ -362,6 +362,16 @@ public extension WorkflowRun {
         pendingDeployments.contains { $0.currentUserCanApprove }
     }
 
+    /// Seconds still to run on a wait timer, when a clock rather than a person
+    /// is what is holding this run up.
+    ///
+    /// The longest of them on a run parked at more than one gate: the question
+    /// being answered is *when does this move again*, and that is the last
+    /// timer to expire rather than the first.
+    var waitTimerRemaining: TimeInterval? {
+        pendingDeployments.compactMap { $0.waitRemaining() }.max()
+    }
+
     /// A short line for the island: `production` or `production, staging`.
     var blockedEnvironmentLabel: String? {
         let environments = approval.environments
@@ -378,6 +388,22 @@ public extension WorkflowRun {
                 ? "waiting for your approval"
                 : "you can approve \(environments.joined(separator: ", "))"
         case .needsOthers(let environments, let reviewers):
+            // A wait timer is not a person, and this is where one lands: GitHub
+            // reports it as `waiting` with an empty reviewer list, so the
+            // fallback below announced "waiting for a reviewer" about a gate
+            // that has none. That is the app inventing somebody to go and
+            // chase. Nothing is blocking this one — it moves on its own, and
+            // when is the only thing worth saying about it.
+            //
+            // Rounded up and never to zero: a timer with nine seconds left says
+            // "1m", because a deploy that claims to be starting in 0m and then
+            // does not is worse than one minute of imprecision.
+            if reviewers.isEmpty, let remaining = waitTimerRemaining {
+                let minutes = max(Int((remaining / 60).rounded(.up)), 1)
+                return environments.isEmpty
+                    ? "starts in \(minutes)m"
+                    : "\(environments.joined(separator: ", ")) — starts in \(minutes)m"
+            }
             let who: String
             if let first = reviewers.first {
                 who = reviewers.count == 1 ? "@\(first)" : "@\(first) +\(reviewers.count - 1)"

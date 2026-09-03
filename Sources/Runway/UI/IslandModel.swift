@@ -193,7 +193,17 @@ public final class IslandModel {
             // it was ever drawn once.
             if run.awaitsMyApproval { return true }
             if run.isBlockedOnApproval {
-                guard let since = run.finishedAt else { return true }
+                // `updatedAt` is the fallback because `finishedAt` is nil for
+                // the commonest shape of a blocked run: a deployment gate
+                // reports `waiting`, `waiting` counts as active, and an active
+                // run has no finish. So the hour below never expired for the
+                // exact runs it was written for — a colleague's gate camped the
+                // island until GitHub dropped the run out of its own recent
+                // list, which is the "pinned forever" outcome `blockedLinger`
+                // exists to prevent. `updatedAt` is when the run last moved,
+                // which for a parked one is when it reached the gate — the same
+                // instant `RunLine` counts its "waiting for" label from.
+                guard let since = run.finishedAt ?? run.updatedAt else { return true }
                 return now.timeIntervalSince(since) < blockedLinger
             }
 
@@ -240,11 +250,6 @@ public final class IslandModel {
         return ordered
     }
 
-    /// Every run the monitor knows about, newest first.
-    public var allRuns: [WorkflowRun] {
-        state.runs.sorted { ($0.startedAt ?? .distantPast) > ($1.startedAt ?? .distantPast) }
-    }
-
     static func mood(for status: RunStatus) -> IslandMood {
         if status.isAwaitingApproval { return .approval }
         if status.isActive { return .running }
@@ -264,12 +269,6 @@ public final class IslandModel {
     /// wrong: nothing is building, and nothing will until somebody clicks.
     static func mood(for run: WorkflowRun) -> IslandMood {
         run.isBlockedOnApproval ? .approval : mood(for: run.status)
-    }
-
-    /// Everything the headline is *not* describing.
-    public var otherRuns: [WorkflowRun] {
-        guard let headline else { return [] }
-        return relevantRuns.filter { $0.identity != headline.identity }
     }
 
     /// How many runs the collapsed island shows before it stops growing.
@@ -431,11 +430,5 @@ enum IslandFormat {
         }
         guard let seconds = run.duration else { return nil }
         return duration(seconds)
-    }
-
-    /// A branch name shortened for a 520pt pill.
-    static func branch(_ raw: String?) -> String? {
-        guard let raw, !raw.isEmpty else { return nil }
-        return raw
     }
 }

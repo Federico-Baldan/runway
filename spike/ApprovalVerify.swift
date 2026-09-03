@@ -138,6 +138,31 @@ enum ApprovalVerify {
                gated.approvalSummary == "waiting for approval")
         assert("a clear run has nothing to say", building.approvalSummary == nil)
 
+        // GitHub reports an environment's wait timer exactly the way it reports
+        // a required reviewer — `status: "waiting"`, with a pending deployment
+        // attached — and the one thing separating them is an empty reviewer
+        // list. Read as a reviewer, it announced "waiting for a reviewer" about
+        // a gate that has none, sending somebody off to chase a person who does
+        // not exist. Nothing is blocking this one; it moves on its own.
+        print()
+        print("── a wait timer is not a reviewer ──")
+        let timed = run(status: .waiting, pending: [
+            timer("production", minutes: 30, startedAt: Date().addingTimeInterval(-600)),
+        ])
+        assert("a running timer says when, not who",
+               timed.approvalSummary == "production — starts in 20m")
+        assert("it is still drawn as blocked", timed.isBlockedOnApproval)
+        assert("and still never notifies", !timed.awaitsMyApproval)
+
+        // Expired, or never set: nothing left to count down to, so the reviewer
+        // wording is the honest fallback again.
+        let expired = run(status: .waiting, pending: [
+            timer("production", minutes: 5, startedAt: Date().addingTimeInterval(-3600)),
+        ])
+        assert("an expired timer falls back to the reviewer wording",
+               expired.approvalSummary == "production — waiting for a reviewer")
+        assert("a gate with no timer has nothing to count", theirs.waitTimerRemaining == nil)
+
         // MARK: Decoding a real payload
 
         print()
@@ -233,6 +258,17 @@ enum ApprovalVerify {
             status: status,
             repository: "acme/web-app",
             pendingDeployments: pending
+        )
+    }
+
+    /// A gate whose only blocker is a clock: a wait timer, and no reviewers.
+    static func timer(_ name: String, minutes: Int, startedAt: Date) -> PendingDeployment {
+        PendingDeployment(
+            environment: PendingDeployment.Environment(id: name.hashValue, name: name),
+            waitTimer: minutes,
+            waitTimerStartedAt: startedAt,
+            currentUserCanApprove: false,
+            reviewers: []
         )
     }
 

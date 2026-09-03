@@ -283,7 +283,11 @@ public enum DeployClassifier {
                 tier = nil
             }
             guard let tier else { continue }
-            if best == nil || tier.rank > best!.tier.rank { best = (word, tier) }
+            guard let current = best else {
+                best = (word, tier)
+                continue
+            }
+            if tier.rank > current.tier.rank { best = (word, tier) }
         }
 
         guard let best else { return nil }

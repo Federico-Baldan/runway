@@ -32,8 +32,7 @@ public struct MonitorState: Sendable, Equatable {
         restamp()
     }
 
-    public var activeRuns: [WorkflowRun] { runs.filter(\.isActive) }
-    public var failedRuns: [WorkflowRun] { runs.filter { $0.status.isFailure } }
+    /// Whether anything is moving, which is what the poll cadence turns on.
     public var hasActiveRun: Bool { runs.contains(where: \.isActive) }
 
     /// Combined change signature over the runs and the error — everything whose
@@ -346,10 +345,26 @@ public actor RunMonitor {
     }
 
     /// Drop the token-scoped caches. Runs when the token changes.
+    ///
+    /// `reviewCache` goes with the other two, and it is the one that could not
+    /// be left behind. The other caches are stale detail that the next poll
+    /// overwrites; this one is an *answer*, and an entry doubles as the
+    /// "already asked" marker — including the empty one written when the
+    /// endpoint refuses. A token that cannot see a repository's environments
+    /// gets a 403 there and caches `[]` for that run forever, so a token
+    /// swapped for one that *can* see them would still draw the deploy
+    /// somebody turned down as the red failure GitHub calls it, for as long as
+    /// the run stayed on screen. Nothing else would ever ask again.
+    ///
+    /// The backoff goes too. A count built up while the old token was failing
+    /// is not evidence about the new one, and leaving it puts the first poll
+    /// after the fix up to five minutes away.
     public func resetForNewToken() async {
         await client.invalidateCache()
         jobCache.removeAll()
         approvalCache.removeAll()
+        reviewCache.removeAll()
+        failureCount = 0
         watched = []
         configurationGeneration &+= 1
         repoListFetchedAt = nil

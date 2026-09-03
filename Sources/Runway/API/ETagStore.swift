@@ -18,7 +18,7 @@ import Foundation
 ///
 ///  * The exemption requires the `Authorization` header. An **unauthenticated**
 ///    304 still decrements the limit, so an empty token must never fall through
-///    to a real request — `GitHubClient.perform` throws `.noToken` first.
+///    to a real request — `GitHubClient.get` throws `.noToken` first.
 ///  * ETags are scoped per token. `invalidate()` therefore runs on every token
 ///    change, or the first poll after a switch would serve another account's
 ///    cached bodies.

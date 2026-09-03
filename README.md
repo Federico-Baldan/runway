@@ -248,15 +248,18 @@ cancels it. Nothing about that state is loud. It reports `status: "waiting"`,
 which reads like "queued" to anything that does not look closer, and the run
 sits at the top of the Actions tab looking busy.
 
-Runway draws it in **amber**, pins it to the island so it cannot age out like a
-finished run, and names the environment: `production — waiting for @alice`. Two
-different GitHub mechanisms land here and they look nothing alike in the API:
+Runway draws it in **amber**, keeps it on the island instead of letting it age
+out the way a finished run does, and names the environment:
+`production — waiting for @alice`. One waiting on *you* stays until it moves;
+one waiting on somebody else gives up its place after an hour, because camping
+the island on a click you cannot make is its own kind of noise. Two different
+GitHub mechanisms land here and they look nothing alike in the API:
 
 | What happened | The API says | Runway shows |
 |---|---|---|
 | Deploy job hit an environment with required reviewers | `status: "waiting"` | amber, with the environment name and who can approve |
 | First-time contributor's pull request needs a maintainer | `conclusion: "action_required"` | amber, "waiting for approval" — GitHub exposes no reviewer list for this one |
-| Environment has a wait timer running | `status: "waiting"`, `wait_timer` set | amber; this one *will* move on its own |
+| Environment has a wait timer running | `status: "waiting"`, `wait_timer` set | amber, counting down — `production — starts in 20m`; this one *will* move on its own |
 
 ### Who gets a notification
 
