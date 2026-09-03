@@ -35,6 +35,24 @@ struct ETagStore: Sendable {
     /// watched does not pin its body in memory forever.
     private let maxAge: TimeInterval = 3_600
 
+    /// How many entries the store will hold, whatever their age.
+    ///
+    /// Age alone was not a bound. Every entry keeps a **full response body**,
+    /// and while the `runs:` and `orgrepos:` keys are one per repository — a
+    /// bounded set — the `jobs:`, `pending:` and `approvals:` keys carry a run
+    /// id, so the store mints three new entries for every run that has ever
+    /// been interesting and holds each for an hour after it was last touched.
+    /// A busy account can start hundreds of runs in an hour, and a run list at
+    /// `per_page=30` is not a small body: the hour-long window was the only
+    /// thing standing between this and tens of megabytes of JSON resident in a
+    /// menu bar app.
+    ///
+    /// 300 is comfortably more than the working set the poll actually
+    /// revalidates — 100 repositories is the configured ceiling, and only runs
+    /// the island is drawing get job detail — so the cap is reached by *dead*
+    /// entries first, which is exactly what should be evicted.
+    private let maxEntries = 300
+
     /// When the last sweep ran, so the store is not re-filtered on every
     /// request — the poll can fire every five seconds.
     private var lastPrune = Date()
@@ -74,6 +92,25 @@ struct ETagStore: Sendable {
             return
         }
         entries[key] = Entry(etag: etag, body: body, refreshedAt: Date())
+        evictOverflow()
+    }
+
+    /// Drop the least recently revalidated entries until the store is back
+    /// under `maxEntries`.
+    ///
+    /// Least-recently-refreshed rather than oldest-written: `etag(for:)` and
+    /// `touch(key:)` both restamp, so an entry the poll keeps revalidating —
+    /// a watched repository's run list — stays no matter how long ago its body
+    /// arrived, and the ones evicted are the runs nothing has asked about since.
+    ///
+    /// Only ever reached on a write, and only when the store is over the line,
+    /// so the sort costs nothing on a normal poll.
+    private mutating func evictOverflow() {
+        guard entries.count > maxEntries else { return }
+        let doomed = entries
+            .sorted { $0.value.refreshedAt < $1.value.refreshedAt }
+            .prefix(entries.count - maxEntries)
+        for entry in doomed { entries[entry.key] = nil }
     }
 
     /// Mark an entry as still current after a 304.

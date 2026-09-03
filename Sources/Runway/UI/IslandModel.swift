@@ -168,6 +168,22 @@ public final class IslandModel {
     /// Runs GitHub says this account can unblock.
     public private(set) var runsAwaitingMe: [WorkflowRun] = []
 
+    /// Live runs that did not fit in the collapsed island.
+    public private(set) var hiddenRunCount = 0
+
+    /// Runs to draw job detail for when expanded.
+    public private(set) var expandedDetail: [WorkflowRun] = []
+
+    /// How far through its linger window the most recent finished run is, 0...1.
+    ///
+    /// Stored with the rest, and it is the one that most needed to be: `body`
+    /// reads it on every pass to set the island's opacity, and computing it
+    /// walked `relevantRuns` three times — once for an active run, once for the
+    /// newest finish, once for a failure — allocating an array of dates on the
+    /// way. It moves only with `relevantRuns` and `now`, which is exactly when
+    /// this runs.
+    public private(set) var settleProgress: Double = 0
+
     /// Everything `relevantRuns` implies, in one pass.
     ///
     /// Stored for the same reason `relevantRuns` is, and the measurement that
@@ -183,9 +199,39 @@ public final class IslandModel {
         headline = relevantRuns.first { Self.mood(for: $0) == mood }
             ?? relevantRuns.first
         collapsedRuns = Array(relevantRuns.prefix(collapsedRowLimit))
+        hiddenRunCount = max(relevantRuns.count - collapsedRowLimit, 0)
+        expandedDetail = Array(relevantRuns.prefix(expandedRowLimit))
         visibleActors = distinctLogins()
         blockedRuns = relevantRuns.filter(\.isBlockedOnApproval)
         runsAwaitingMe = relevantRuns.filter(\.awaitsMyApproval)
+        settleProgress = computeSettleProgress()
+    }
+
+    /// One walk of `relevantRuns` for everything the fade needs: whether
+    /// anything is still moving, when the newest finish was, and whether any of
+    /// it broke — which decides which linger window it is aging against.
+    private func computeSettleProgress() -> Double {
+        // An approval never fades. It is not a finished run being polite about
+        // getting out of the way; it is a question nobody has answered.
+        guard blockedRuns.isEmpty else { return 0 }
+
+        var newestFinish: Date?
+        var sawFailure = false
+        for run in relevantRuns {
+            if run.isActive { return 0 }
+            if run.status.isFailure { sawFailure = true }
+            if let finished = run.finishedAt,
+               finished > (newestFinish ?? .distantPast) {
+                newestFinish = finished
+            }
+        }
+        guard let newestFinish else { return 0 }
+
+        let age = now.timeIntervalSince(newestFinish)
+        let window = sawFailure ? failedLinger : finishedLinger
+        let dimStart = window * 0.66
+        guard age > dimStart else { return 0 }
+        return min((age - dimStart) / (window - dimStart), 1)
     }
 
     private func recomputeRelevantRuns() {
@@ -281,15 +327,8 @@ public final class IslandModel {
     /// How many runs the collapsed island shows before it stops growing.
     private let collapsedRowLimit = 4
 
-    /// Live runs that did not fit in the collapsed island.
-    public var hiddenRunCount: Int {
-        max(relevantRuns.count - collapsedRowLimit, 0)
-    }
-
-    /// Runs to draw job detail for when expanded.
-    public var expandedDetail: [WorkflowRun] {
-        Array(relevantRuns.prefix(6))
-    }
+    /// How many runs the expanded island draws job detail for.
+    private let expandedRowLimit = 6
 
     /// True when the island is showing more than one person's runs, so rows
     /// should be labelled with who triggered them.
@@ -303,21 +342,6 @@ public final class IslandModel {
         // The one state that keeps the island up with nothing to report.
         if showsIdleMark { return true }
         return !relevantRuns.isEmpty
-    }
-
-    /// How far through its linger window the most recent finished run is, 0...1.
-    public var settleProgress: Double {
-        // An approval never fades. It is not a finished run being polite about
-        // getting out of the way; it is a question nobody has answered.
-        guard blockedRuns.isEmpty else { return 0 }
-        guard !relevantRuns.contains(where: \.isActive) else { return 0 }
-        guard let finished = relevantRuns.compactMap(\.finishedAt).max() else { return 0 }
-
-        let age = now.timeIntervalSince(finished)
-        let window = relevantRuns.contains { $0.status.isFailure } ? failedLinger : finishedLinger
-        let dimStart = window * 0.66
-        guard age > dimStart else { return 0 }
-        return min((age - dimStart) / (window - dimStart), 1)
     }
 
     // MARK: - Ticker
@@ -361,8 +385,22 @@ public final class IslandModel {
     /// Fifteen seconds is well inside the hour it is aging against, and any run
     /// that starts moving replaces the task rather than waiting for the slow
     /// tick to notice.
+    ///
+    /// The test is `!isBlockedOnApproval` and nothing else. It used to be
+    /// `isActive || !isBlockedOnApproval`, which never once chose the slow
+    /// cadence for the state it was written for: a deployment gate reports
+    /// `status: "waiting"`, `waiting` counts as active, so the first half of
+    /// that `||` was true for exactly the runs the second half was trying to
+    /// exclude. Every blocked run took the 1 s tick — a filter, a sort, a full
+    /// re-derive, a status-item redraw and a panel sync, 3,600 times an hour,
+    /// for a pill that does not move a pixel.
+    ///
+    /// Everything that is *not* blocked wants the fast tick, and for one of two
+    /// reasons: it is moving and its elapsed counter is running, or it has
+    /// finished and is fading out through its linger window. Both are covered
+    /// without asking about `isActive` at all.
     private static func tickSeconds(for runs: [WorkflowRun]) -> Int {
-        runs.contains { $0.isActive || !$0.isBlockedOnApproval } ? 1 : 15
+        runs.contains { !$0.isBlockedOnApproval } ? 1 : 15
     }
 
     /// Only run a timer when something is actually counting, and only while

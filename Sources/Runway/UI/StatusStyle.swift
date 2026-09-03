@@ -200,6 +200,9 @@ struct StatusGlyph: View {
     /// Set when the run is blocked on an approval, which outranks the status:
     /// a run can say `in_progress` while one of its jobs waits on a reviewer.
     var blocked: Bool = false
+    /// True while the display is asleep, which stops both repeating animations
+    /// below. See `ActivityRing.sweep` for why that matters.
+    var isSuspended: Bool = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var drawn = false
@@ -213,6 +216,13 @@ struct StatusGlyph: View {
             .onAppear { begin() }
             .onChange(of: status) { _, _ in redraw() }
             .onChange(of: blocked) { _, _ in redraw() }
+            // A dark screen is not somebody to breathe at. The pulse is the one
+            // `repeatForever` the island permits itself, and leaving it running
+            // behind a closed lid is exactly the recurring wakeup the rest of
+            // this app goes out of its way not to schedule.
+            .onChange(of: isSuspended) { _, suspended in
+                pulse = suspended ? false : (blocked || status.isAwaitingApproval) && !reduceMotion
+            }
             .accessibilityLabel(Text(accessibilityLabel))
     }
 
@@ -227,7 +237,8 @@ struct StatusGlyph: View {
                 colour: tint,
                 progress: progress,
                 size: size,
-                isMoving: status == .inProgress
+                isMoving: status == .inProgress,
+                isSuspended: isSuspended
             )
         } else if let mark = solidMark {
             disc(mark)
@@ -337,7 +348,7 @@ struct StatusGlyph: View {
             return
         }
         withAnimation(.easeOut(duration: 0.42).delay(0.04)) { drawn = true }
-        pulse = isBlocked
+        pulse = isBlocked && !isSuspended
     }
 
     /// Redraw the mark when the state under it changes, so a run going from
@@ -351,7 +362,7 @@ struct StatusGlyph: View {
     /// lets the first value commit, so there is something to animate away from.
     private func redraw() {
         let isBlocked = blocked || status.isAwaitingApproval
-        pulse = isBlocked && !reduceMotion
+        pulse = isBlocked && !reduceMotion && !isSuspended
         guard !reduceMotion else {
             drawn = true
             return
@@ -379,6 +390,8 @@ struct ActivityRing: View {
     var progress: Double? = nil
     var size: CGFloat
     var isMoving: Bool = true
+    /// True while the display is asleep. See `sweep`.
+    var isSuspended: Bool = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var spin = false
@@ -403,7 +416,17 @@ struct ActivityRing: View {
                 .rotationEffect(.degrees(spin ? 270 : -90))
                 .animation(sweep, value: spin)
         }
-        .onAppear { spin = !reduceMotion }
+        .onAppear { spin = !reduceMotion && !isSuspended }
+        // Stopped rather than slowed when the screen goes dark. This is a
+        // `repeatForever`, which holds the display link open for as long as the
+        // view lives — and a run that is still building when the lid closes
+        // keeps one open behind it indefinitely. The island's other recurring
+        // costs (the elapsed ticker, the idle mark's beat loop, the poll
+        // cadence) all already stand down on the same signal; this was the one
+        // that did not.
+        .onChange(of: isSuspended) { _, suspended in
+            spin = suspended ? false : !reduceMotion
+        }
     }
 
     /// The head, with its own wake behind it.
@@ -463,7 +486,7 @@ struct ActivityRing: View {
 
     /// A full turn, from -90° to 270°.
     private var sweep: Animation? {
-        guard !reduceMotion else { return nil }
+        guard !reduceMotion, !isSuspended else { return nil }
         return .linear(duration: 1.05).repeatForever(autoreverses: false)
     }
 }

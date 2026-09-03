@@ -157,6 +157,37 @@ public actor GitHubClient {
     /// Public GitHub. Enterprise Server installs use `https://HOST/api/v3`.
     public static let defaultBaseURL = URL(string: "https://api.github.com")!
 
+    /// The session every client uses unless one is injected.
+    ///
+    /// **Not `URLSession.shared`, and that is the whole point.** The shared
+    /// session carries the shared `URLCache`, which on macOS is backed by a
+    /// several-hundred-megabyte on-disk store — and every 200 this app receives
+    /// is a cacheable `GET` that lands in it. Runway polls up to a hundred
+    /// repositories, and a run list at `per_page=30` is a substantial JSON
+    /// body, so an app whose entire reason for existing is to be cheap was
+    /// quietly writing GitHub's API to disk all day.
+    ///
+    /// None of it was ever read back, either. `get(_:)` sets
+    /// `.reloadIgnoringLocalCacheData` on every request precisely so the URL
+    /// cache cannot answer one — the conditional-request machinery in
+    /// `ETagStore` depends on seeing GitHub's own 304, which a cache hit would
+    /// hide. That flag governs the *request* only; the response was still being
+    /// stored. So the store was pure cost: bytes on disk, and the I/O to put
+    /// them there, for a cache with no reader.
+    ///
+    /// An ephemeral configuration has no disk store at all, which also means
+    /// the token never reaches a persistent cookie or credential file.
+    nonisolated(unsafe) private static let sharedSession: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        // The poll is serial by design — see `fetchRepositories` — so a wide
+        // connection pool buys nothing and only holds sockets open.
+        configuration.httpMaximumConnectionsPerHost = 2
+        configuration.waitsForConnectivity = false
+        return URLSession(configuration: configuration)
+    }()
+
     /// Mutable, because the GitHub instance is a setting. See `setBaseURL`.
     private var baseURL: URL
     private let session: URLSession
@@ -192,7 +223,7 @@ public actor GitHubClient {
 
     public init(
         baseURL: URL = GitHubClient.defaultBaseURL,
-        session: URLSession = .shared,
+        session: URLSession = GitHubClient.sharedSession,
         tokenProvider: @escaping @Sendable () -> String? = { TokenCache.shared.token() }
     ) {
         self.baseURL = baseURL
@@ -519,7 +550,9 @@ public actor GitHubClient {
         request.setValue("Runway", forHTTPHeaderField: "User-Agent")
         // URLSession keeps its own HTTP cache, which would answer from disk and
         // hide the 304 the rate-limit exemption depends on. ETags are handled
-        // here instead, so the URL cache must stay out of the way.
+        // here instead, so the URL cache must stay out of the way. Belt to
+        // `sharedSession`'s braces, which has no cache to answer from — an
+        // injected session may still have one.
         request.cachePolicy = .reloadIgnoringLocalCacheData
         if let etag = etags.etag(for: cacheKey) {
             request.setValue(etag, forHTTPHeaderField: "If-None-Match")

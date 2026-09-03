@@ -666,6 +666,13 @@ public struct WorkflowRun: Codable, Sendable, Hashable, Identifiable {
     public var jobList: [Job] { jobs }
     public var runningJobs: [Job] { jobs.filter { $0.status.isActive } }
 
+    /// The first job still going, for the row that prints one name.
+    ///
+    /// `runningJobs.first` was doing this by filtering the whole list and then
+    /// discarding all but its head — an array allocation per run, on every body
+    /// pass of a view that redraws once a second.
+    public var firstRunningJob: Job? { jobs.first { $0.status.isActive } }
+
     /// Steps currently executing, across every job.
     public var runningSteps: [Step] { jobs.flatMap(\.runningSteps) }
 

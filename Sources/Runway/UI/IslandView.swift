@@ -110,7 +110,8 @@ struct IslandView: View {
                     status: run.status,
                     size: 11,
                     progress: run.isActive ? run.progress : nil,
-                    blocked: run.isBlockedOnApproval
+                    blocked: run.isBlockedOnApproval,
+                    isSuspended: model.isSuspended
                 )
                 .transition(.scale(scale: 0.4).combined(with: .opacity))
                 .id(run.identity)
@@ -270,6 +271,7 @@ struct IslandView: View {
                         run: run,
                         now: model.now,
                         showActor: model.showsMultipleActors,
+                        isSuspended: model.isSuspended,
                         onOpen: onOpen,
                         onDismiss: onDismiss
                     )
@@ -333,6 +335,7 @@ struct IslandView: View {
                 JobDetail(
                     run: run,
                     showActor: model.showsMultipleActors,
+                    isSuspended: model.isSuspended,
                     onOpen: onOpen,
                     onDismiss: onDismiss
                 )
@@ -405,6 +408,8 @@ struct JobDetail: View {
 
     let run: WorkflowRun
     var showActor: Bool = false
+    /// True while the display is asleep, so the glyph can stop its animation.
+    var isSuspended: Bool = false
     var onOpen: (WorkflowRun) -> Void = { _ in }
     var onDismiss: (WorkflowRun) -> Void = { _ in }
 
@@ -417,7 +422,8 @@ struct JobDetail: View {
                     status: run.status,
                     size: 10,
                     progress: run.isActive ? run.progress : nil,
-                    blocked: run.isBlockedOnApproval
+                    blocked: run.isBlockedOnApproval,
+                    isSuspended: isSuspended
                 )
                 Text(run.repositoryName)
                     .font(.system(size: 10.5, weight: .semibold))
@@ -578,6 +584,8 @@ struct RunLine: View {
     let run: WorkflowRun
     let now: Date
     var showActor: Bool = false
+    /// True while the display is asleep, so the glyph can stop its animation.
+    var isSuspended: Bool = false
     let onOpen: (WorkflowRun) -> Void
     var onDismiss: (WorkflowRun) -> Void = { _ in }
 
@@ -589,7 +597,8 @@ struct RunLine: View {
                 status: run.status,
                 size: 13,
                 progress: run.isActive ? run.progress : nil,
-                blocked: run.isBlockedOnApproval
+                blocked: run.isBlockedOnApproval,
+                isSuspended: isSuspended
             )
             .frame(width: 13)
 
@@ -627,7 +636,7 @@ struct RunLine: View {
             if run.isBlockedOnApproval {
                 ApprovalChip(run: run, compact: true)
                     .layoutPriority(2)
-            } else if let job = run.runningJobs.first {
+            } else if let job = run.firstRunningJob {
                 Text(job.name)
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.66))

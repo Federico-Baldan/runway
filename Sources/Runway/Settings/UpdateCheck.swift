@@ -59,7 +59,11 @@ enum UpdateCheck {
         request.setValue(GitHubClient.apiVersion, forHTTPHeaderField: "X-GitHub-Api-Version")
         request.setValue("Runway", forHTTPHeaderField: "User-Agent")
 
-        URLSession.shared.dataTask(with: request) { data, _, _ in
+        // Not `URLSession.shared`: it carries the shared on-disk `URLCache`,
+        // and this is a once-a-day request whose answer is already remembered
+        // in `latestSeenKey`. See `GitHubClient.sharedSession`.
+        let session = URLSession(configuration: .ephemeral)
+        let task = session.dataTask(with: request) { data, _, _ in
             guard let data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let tag = json["tag_name"] as? String else {
@@ -72,7 +76,12 @@ enum UpdateCheck {
                 availableVersion = isNewer(version, than: currentVersion) ? version : nil
                 completion?(availableVersion)
             }
-        }.resume()
+        }
+        task.resume()
+        // Releases the session's queue once this one task is done. A session
+        // that is never invalidated keeps its worker alive for the life of the
+        // process, which for a check that runs once a day is all cost.
+        session.finishTasksAndInvalidate()
     }
 
     static func openReleasePage() {
@@ -80,13 +89,44 @@ enum UpdateCheck {
         NSWorkspace.shared.open(pageURL)
     }
 
-    /// Semantic-ish comparison. Falls back to string inequality for tags that
-    /// are not three numbers.
+    /// Semantic-ish comparison, component by component, missing components
+    /// read as zero.
+    ///
+    /// The padding is what stops a phantom update. This used to require exactly
+    /// three numeric components on **both** sides and otherwise fall back to
+    /// `candidate != current` — so a release tagged `v0.7` against an installed
+    /// `0.7.0` compared unequal, was called newer, and put "Update available:
+    /// 0.7" in the menu bar of a machine already running it, permanently: the
+    /// check is once a day and the answer never changes.
+    ///
+    /// `compactMap` was the other half of it. It *drops* a component it cannot
+    /// read rather than failing, so `1.10.0-rc1` parsed to `[1, 10]` — a
+    /// two-component version, straight into the same fallback. A pre-release
+    /// suffix now makes the whole comparison decline instead, which is the
+    /// honest answer: Runway ships plain `MAJOR.MINOR.PATCH` tags, and a tag
+    /// that is not one is not a release this can reason about.
     static func isNewer(_ candidate: String, than current: String) -> Bool {
-        let a = candidate.split(separator: ".").compactMap { Int($0) }
-        let b = current.split(separator: ".").compactMap { Int($0) }
-        guard a.count == 3, b.count == 3 else { return candidate != current }
-        for (lhs, rhs) in zip(a, b) where lhs != rhs { return lhs > rhs }
+        guard let a = components(of: candidate), let b = components(of: current) else {
+            return false
+        }
+        for index in 0..<max(a.count, b.count) {
+            let lhs = index < a.count ? a[index] : 0
+            let rhs = index < b.count ? b[index] : 0
+            if lhs != rhs { return lhs > rhs }
+        }
         return false
+    }
+
+    /// A dotted version as numbers, or `nil` if any part of it is not one.
+    private static func components(of version: String) -> [Int]? {
+        let parts = version.split(separator: ".")
+        guard !parts.isEmpty else { return nil }
+        var numbers: [Int] = []
+        numbers.reserveCapacity(parts.count)
+        for part in parts {
+            guard let number = Int(part), number >= 0 else { return nil }
+            numbers.append(number)
+        }
+        return numbers
     }
 }
