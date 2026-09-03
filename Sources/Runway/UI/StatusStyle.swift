@@ -800,9 +800,28 @@ struct StepBar: View {
     }
 
     /// One segment per step, sharing the width equally.
+    ///
+    /// Keyed on the index rather than on `Step.id`, which is
+    /// `"\(number)/\(name)"` — a string `ForEach` builds for every step on
+    /// every diff. A pill draws up to twelve segments a bar, five bars a run,
+    /// and redraws once a second, so that identity was a few hundred small
+    /// heap allocations a second spent on a value nothing ever reads. The
+    /// index costs nothing: `indices` is a `Range`, and `\.self` on an `Int` is
+    /// the identity function.
+    ///
+    /// Safe because steps are positionally stable — GitHub returns them in
+    /// `number` order and a run only ever appends as the job progresses, so an
+    /// index means the same step from one poll to the next. The dynamic
+    /// `indices` form is also the one that does not have the constant-range
+    /// `ForEach(0..<n)` trap: `indices` and the subscript below are read from
+    /// the same `job` in the same body pass, so they cannot disagree.
+    ///
+    /// `JobTrack` made the same trade one type down for the same reason; this
+    /// is that, without the `Array(enumerated())` allocation it pays for it.
     private var segments: some View {
         HStack(spacing: 1) {
-            ForEach(job.steps) { step in
+            ForEach(job.steps.indices, id: \.self) { index in
+                let step = job.steps[index]
                 Rectangle()
                     .fill(fill(for: step.status))
                     .opacity(step.status == .inProgress && pulse ? 0.55 : 1)
