@@ -1,6 +1,21 @@
 import AppKit
 import SwiftUI
 
+/// Tells the controller when its menu is on screen.
+///
+/// A separate object rather than the controller itself, because
+/// `StatusItemController` is not an `NSObject` subclass and `NSMenuDelegate`
+/// needs one. It holds nothing and forwards two events.
+@MainActor
+private final class MenuPresenceWatcher: NSObject, NSMenuDelegate {
+    var onOpen: (() -> Void)?
+    var onClose: (() -> Void)?
+
+    func menuWillOpen(_ menu: NSMenu) { onOpen?() }
+
+    func menuDidClose(_ menu: NSMenu) { onClose?() }
+}
+
 /// The menu bar status item — the app's permanent handle.
 @MainActor
 public final class StatusItemController {
@@ -16,6 +31,12 @@ public final class StatusItemController {
     /// Approvals move without the mood or the run count moving — a run going
     /// from "waiting on Alice" to "waiting on you" changes neither.
     private var lastApprovals: Int = -1
+    /// And a run blocked on somebody *else*, which the count above cannot see.
+    /// The summary line prints "N waiting for approval" off `blockedRuns`, so a
+    /// second colleague's deploy reaching a gate moved that sentence while the
+    /// mood stayed `.approval`, the run count stayed put, and the menu went on
+    /// claiming there was one.
+    private var lastBlocked: Int = -1
     /// So does the scope line. `rebuildMenu` prints how many repositories are
     /// watched and, on a failure, the error itself — and a repository list that
     /// grows on its five-minute refresh, or an error whose *text* changes while
@@ -28,6 +49,19 @@ public final class StatusItemController {
     /// mood nor the count — so without this the row keeps the title it was
     /// built with before anybody knew where it was deploying.
     private var lastEnvironments: String?
+
+    /// Whether the menu is currently on screen, and whether a redraw arrived
+    /// while it was.
+    ///
+    /// `rebuildMenu` assigns a brand-new `NSMenu` to the status item, and doing
+    /// that to an item whose menu is open closes it. A poll lands every five
+    /// seconds while something is building, which is exactly when somebody is
+    /// most likely to have the menu open reading it — so the menu shut itself
+    /// mid-read, on a timer, and the click that reopened it started the same
+    /// race again. Held back until the menu closes instead.
+    private let menuWatcher = MenuPresenceWatcher()
+    private var isMenuOpen = false
+    private var needsMenuRebuild = false
 
     public init(
         model: IslandModel,
@@ -42,6 +76,14 @@ public final class StatusItemController {
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         configureButton()
+        menuWatcher.onOpen = { [weak self] in self?.isMenuOpen = true }
+        menuWatcher.onClose = { [weak self] in
+            guard let self else { return }
+            isMenuOpen = false
+            guard needsMenuRebuild else { return }
+            needsMenuRebuild = false
+            rebuildMenu()
+        }
         rebuildMenu()
         // The only two things that change this item are the model — pushed in by
         // the app delegate through `refresh()` — and the once-a-day update check,
@@ -59,8 +101,32 @@ public final class StatusItemController {
         button.toolTip = "Runway"
     }
 
-    /// Build the icon for a mood.
+    /// Every icon this item can draw, built once.
+    ///
+    /// There are seven of them — six moods and the no-token warning — and they
+    /// never change. They were being rebuilt from scratch on demand, which
+    /// `rebuildMenu` does up to thirteen times in a pass: once per approval row
+    /// and once per run row, on top of the button's own. Each rebuild is either
+    /// a fresh `NSImage` with a drawing handler (the brand mark) or an SF Symbol
+    /// lookup plus two `SymbolConfiguration` allocations, and a poll rebuilds
+    /// the menu every five seconds while something is building.
+    ///
+    /// Sharing one `NSImage` between menu items is fine — AppKit does not
+    /// mutate them — and the brand mark is drawn through a handler rather than
+    /// captured as a bitmap, so a cached instance still re-renders at whatever
+    /// scale the display it lands on asks for.
+    private static var symbolCache: [String: NSImage] = [:]
+
+    /// Build the icon for a mood, or hand back the one already built.
     private static func symbol(for mood: IslandMood, hasToken: Bool = true) -> NSImage? {
+        let key = hasToken ? "mood:\(mood.rank)" : "no-token"
+        if let cached = symbolCache[key] { return cached }
+        let image = makeSymbol(for: mood, hasToken: hasToken)
+        if let image { symbolCache[key] = image }
+        return image
+    }
+
+    private static func makeSymbol(for mood: IslandMood, hasToken: Bool) -> NSImage? {
         guard hasToken else {
             return tinted("exclamationmark.circle", .systemOrange, template: false)
         }
@@ -105,8 +171,15 @@ public final class StatusItemController {
     // MARK: - Menu
 
     private func rebuildMenu() {
+        // Never out from under an open menu — see `needsMenuRebuild`.
+        guard !isMenuOpen else {
+            needsMenuRebuild = true
+            return
+        }
+
         let menu = NSMenu()
         menu.autoenablesItems = false
+        menu.delegate = menuWatcher
 
         // Live summary line, disabled — a label rather than an action.
         let summary = NSMenuItem(title: summaryTitle(), action: nil, keyEquivalent: "")
@@ -266,19 +339,22 @@ public final class StatusItemController {
         let count = model.relevantRuns.count
         let update = UpdateCheck.availableVersion
         let approvals = model.runsAwaitingMe.count
+        let blocked = model.blockedRuns.count
         let repositories = model.state.repositories.count
         let error = model.state.error
         let environments = model.relevantRuns
             .compactMap(\.deployTarget?.name)
             .joined(separator: ",")
         guard mood != lastMood || count != lastCount || update != lastUpdate
-                || approvals != lastApprovals || repositories != lastRepositoryCount
+                || approvals != lastApprovals || blocked != lastBlocked
+                || repositories != lastRepositoryCount
                 || error != lastError || environments != lastEnvironments else { return }
         lastEnvironments = environments
         lastUpdate = update
         lastMood = mood
         lastCount = count
         lastApprovals = approvals
+        lastBlocked = blocked
         lastRepositoryCount = repositories
         lastError = error
 

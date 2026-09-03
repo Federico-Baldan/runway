@@ -440,12 +440,30 @@ public extension WorkflowRun {
     ///
     /// Steps when they have arrived, jobs when they have not, so the ring is
     /// never empty on a run whose detail is still a request away.
+    ///
+    /// Counted in place rather than built up as arrays. `StatusGlyph` asks for
+    /// this on every active run on every body pass, and the island redraws once
+    /// a second — so the previous version's `flatMap` over every job's steps,
+    /// plus a `map` and a `filter` over the result, was three array allocations
+    /// per run per frame for a number that is two integers.
     var progress: Double {
-        let steps = jobs.flatMap(\.steps)
-        let statuses = steps.isEmpty ? jobs.map(\.status) : steps.map(\.status)
-        guard !statuses.isEmpty else { return 0 }
-        let settled = statuses.filter(\.isTerminal).count
-        return min(max(Double(settled) / Double(statuses.count), 0), 1)
+        var total = 0
+        var settled = 0
+        for job in jobs {
+            for step in job.steps {
+                total += 1
+                if step.status.isTerminal { settled += 1 }
+            }
+        }
+        // No steps anywhere: fall back to the jobs themselves.
+        if total == 0 {
+            for job in jobs {
+                total += 1
+                if job.status.isTerminal { settled += 1 }
+            }
+        }
+        guard total > 0 else { return 0 }
+        return min(max(Double(settled) / Double(total), 0), 1)
     }
 }
 
