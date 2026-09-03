@@ -754,6 +754,17 @@ struct StepBar: View {
     /// Whether the running segment breathes. Off in the pill, on in the panel:
     /// see `shouldPulse`.
     var pulses: Bool = true
+    /// True while the display is asleep.
+    ///
+    /// The only repeating animation in the app that had no such switch, which
+    /// left it as the one thing still holding a display link open behind a
+    /// closed lid. `ActivityRing` and `StatusGlyph` both take this signal and
+    /// stand their motion down on it; this bar breathes in the expanded panel,
+    /// and the expanded panel does not close itself when the screen goes dark —
+    /// `IslandModel.isVisible` returns true for an expanded island
+    /// unconditionally, so a pointer left resting on the notch keeps the whole
+    /// panel mounted and pulsing all night.
+    var isSuspended: Bool = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulse = false
@@ -904,7 +915,8 @@ struct StepBar: View {
     /// pill, where the island has already decided that per-step animation
     /// behind a glanceable badge was the wrong trade.
     private var shouldPulse: Bool {
-        pulses && !reduceMotion && job.steps.contains(where: { $0.status == .inProgress })
+        pulses && !reduceMotion && !isSuspended
+            && job.steps.contains(where: { $0.status == .inProgress })
     }
 
     private var pulseAnimation: Animation? {

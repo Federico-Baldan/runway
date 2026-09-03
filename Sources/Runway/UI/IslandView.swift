@@ -585,7 +585,16 @@ struct JobDetail: View {
         let blamed = job.status.isFailure
 
         HStack(alignment: .center, spacing: 7) {
-            StatusGlyph(status: job.status, size: 8, blocked: job.isBlockedOnApproval)
+            // `isSuspended` threaded through here as well, and it is the row
+            // that most needed it: this glyph carries both of the repeating
+            // animations the island permits itself — the approval pulse and
+            // `ActivityRing`'s sweep — and a run has one of these per job.
+            StatusGlyph(
+                status: job.status,
+                size: 8,
+                blocked: job.isBlockedOnApproval,
+                isSuspended: isSuspended
+            )
             Text(job.name)
                 .font(.system(size: 10, design: .monospaced))
                 .foregroundStyle(StatusStyle.color(for: job.status).opacity(0.95))
@@ -594,7 +603,7 @@ struct JobDetail: View {
                 .truncationMode(.tail)
                 .help(job.name)
 
-            StepBar(job: job, segmentCap: Self.stepDotLimit)
+            StepBar(job: job, segmentCap: Self.stepDotLimit, isSuspended: isSuspended)
 
             if let note = jobNote(job) {
                 Text(note)
