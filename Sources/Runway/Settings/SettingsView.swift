@@ -696,6 +696,7 @@ struct SettingsView: View {
                 Text("Where in the notch")
                     .font(.system(size: 12))
                     .foregroundStyle(preferences.idleMark ? .primary : .tertiary)
+                    .frame(width: markSettingLabelWidth, alignment: .leading)
                 Picker("", selection: $preferences.idleMarkPosition) {
                     ForEach(IdleMarkPosition.allCases, id: \.self) { position in
                         Text(position.title).tag(position)
@@ -708,6 +709,29 @@ struct SettingsView: View {
             }
             .padding(.leading, 38)
             .disabled(!preferences.idleMark)
+
+            // Swatches rather than a picker of colour names, and a short list
+            // rather than a colour well: see `IdleMarkTint` for why a free
+            // choice here is a choice you can make invisible.
+            HStack(spacing: 8) {
+                Text("Colour")
+                    .font(.system(size: 12))
+                    .foregroundStyle(preferences.idleMark ? .primary : .tertiary)
+                    .frame(width: markSettingLabelWidth, alignment: .leading)
+                HStack(spacing: 6) {
+                    ForEach(IdleMarkTint.allCases, id: \.self) { tint in
+                        tintSwatch(tint)
+                    }
+                }
+                // `.disabled` dims a Picker for you and a plain Button not at
+                // all, so the swatches say it themselves.
+                .opacity(preferences.idleMark ? 1 : 0.4)
+                Spacer()
+            }
+            .padding(.leading, 38)
+            .disabled(!preferences.idleMark)
+            .help("The light in the resting mark. The menu bar icon is a "
+                  + "template image, so macOS keeps tinting that one.")
 
             Divider().padding(.vertical, 4)
 
@@ -897,6 +921,36 @@ struct SettingsView: View {
         Haptics.isSupported
             ? "A tap when a run starts, finishes, or fails. Requires a Force Touch trackpad."
             : "No Force Touch trackpad detected — haptics will not be felt on a mouse."
+    }
+
+    /// Keeps the two indented mark controls on one column. "Where in the
+    /// notch" is the long label; the swatches line up under its picker.
+    private var markSettingLabelWidth: CGFloat { 124 }
+
+    /// One tint, drawn the way macOS draws an accent choice: the colour itself,
+    /// a hairline so the white one still has an edge on a light window, and a
+    /// ring around the one that is on. A button and not a tap gesture, so it is
+    /// reachable from the keyboard and announced as selected.
+    private func tintSwatch(_ tint: IdleMarkTint) -> some View {
+        let isSelected = preferences.idleMarkTint == tint
+        return Button {
+            preferences.idleMarkTint = tint
+        } label: {
+            Circle()
+                .fill(tint.swatch)
+                .overlay(Circle().strokeBorder(Color.primary.opacity(0.18), lineWidth: 0.5))
+                .frame(width: 16, height: 16)
+                .padding(2)
+                .overlay(
+                    Circle().strokeBorder(
+                        isSelected ? Color.accentColor : .clear, lineWidth: 2
+                    )
+                )
+        }
+        .buttonStyle(.plain)
+        .help(tint.title)
+        .accessibilityLabel(Text(tint.title))
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : [.isButton])
     }
 
     private struct DisplayOption {

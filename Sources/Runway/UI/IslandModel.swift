@@ -70,6 +70,10 @@ public final class IslandModel {
     /// `NotchPanelController` from the preference, same as `showsIdleMark`.
     public var idleMarkPosition: IdleMarkPosition = .center
 
+    /// What colour that mark is drawn in. Written by `NotchPanelController`
+    /// from the preference, same as `idleMarkPosition`.
+    public var idleMarkTint: IdleMarkTint = .white
+
     /// Drives the enter/exit morph.
     public var isOnScreen = false
 

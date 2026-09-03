@@ -84,6 +84,12 @@ public final class NotchPanelController {
         didSet { model.idleMarkPosition = idleMarkPosition }
     }
 
+    /// What colour that mark is drawn in. Straight through to the model, for
+    /// the same reason the position is.
+    public var idleMarkTint: IdleMarkTint = .white {
+        didSet { model.idleMarkTint = idleMarkTint }
+    }
+
     private var currentPlacement: NotchGeometry.Placement?
     /// Notification tokens, kept per centre.
     ///

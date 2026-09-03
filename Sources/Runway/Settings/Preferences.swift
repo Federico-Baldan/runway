@@ -93,6 +93,7 @@ public final class Preferences {
         static let haptics = "island.haptics"
         static let idleMark = "island.idleMark"
         static let idleMarkPosition = "island.idleMarkPosition"
+        static let idleMarkTint = "island.idleMarkTint"
         static let approvalNotifications = "notify.approvals"
         static let approvalsFromOthers = "actors.approvalsFromOthers"
     }
@@ -152,6 +153,9 @@ public final class Preferences {
         self.idleMarkPosition = IdleMarkPosition(
             rawValue: defaults.string(forKey: Key.idleMarkPosition) ?? ""
         ) ?? .center
+        self.idleMarkTint = IdleMarkTint(
+            rawValue: defaults.string(forKey: Key.idleMarkTint) ?? ""
+        ) ?? .white
         self.approvalNotifications = (defaults.object(forKey: Key.approvalNotifications) as? Bool)
             ?? EnvironmentDefault.bool(EnvironmentDefault.notifyApprovals)
             ?? true
@@ -264,6 +268,12 @@ public final class Preferences {
     /// `IdleMarkPosition` for why this is a preference and not a decision.
     public var idleMarkPosition: IdleMarkPosition {
         didSet { defaults.set(idleMarkPosition.rawValue, forKey: Key.idleMarkPosition) }
+    }
+
+    /// What colour the resting mark is drawn in. See `IdleMarkTint` for why
+    /// the choice is a short list of hues the island already uses.
+    public var idleMarkTint: IdleMarkTint {
+        didSet { defaults.set(idleMarkTint.rawValue, forKey: Key.idleMarkTint) }
     }
 
     /// Haptic feedback on run transitions.

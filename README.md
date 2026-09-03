@@ -447,7 +447,10 @@ often and looking around. The band is *blended* into the housing rather than
 hung off it: concave shoulders where it meets the menu bar, convex corners at
 the bottom, so the union of hardware and pixels reads as one object. Hover it
 and it looks back. Left, centre or right in Settings, since the band is the
-cutout's width and that is a lot of room for one small mark.
+cutout's width and that is a lot of room for one small mark — and one of seven
+colours, offered as swatches rather than a colour well because a free picker
+lets you pick something that cannot be seen against the housing's black. Every
+option is a hue the island already uses elsewhere.
 
 The eye moves in saccades — abrupt 45-70ms jumps, a fixation between each, and a
 blink on the way home, because that is what a real gaze shift does and a springy
@@ -455,7 +458,11 @@ eye is the one thing that reads as unmistakably fake. It is notch-only: off a
 cutout the resting island is a floating pill under the menu bar, and a pill that
 never leaves is furniture. It holds no animation timer — one short beat every
 four to twelve seconds, none at all while the screen is asleep or Reduce Motion
-is on. Off in Settings → Where to show the island.
+is on. Leave it alone for minutes and it falls asleep, and sleep is not one
+state: it cycles through light, deep and dreaming, and because the cheapest
+phase is also the one that waits longest, an idle hour costs less than it did
+when all the mark knew how to do was blink. Off in Settings → Where to show
+the island.
 
 **Launch at login** — registers with macOS via `SMAppService`. It shows up in
 System Settings → General → Login Items, and turning it off there wins: the app

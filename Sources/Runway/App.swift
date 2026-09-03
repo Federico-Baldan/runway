@@ -107,6 +107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastScreenPreference: NotchGeometry.ScreenPreference?
     private var lastIdleMark: Bool?
     private var lastIdleMarkPosition: IdleMarkPosition?
+    private var lastIdleMarkTint: IdleMarkTint?
     private var lastConfigurationSignature: String?
     private var lastHost: String?
     /// Debounce for the host field — see `hostChanged`.
@@ -147,6 +148,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.screenPreference = Preferences.shared.screenPreference
         controller.showsIdleMark = Preferences.shared.idleMark
         controller.idleMarkPosition = Preferences.shared.idleMarkPosition
+        controller.idleMarkTint = Preferences.shared.idleMarkTint
 
         if verifyOnly {
             runVerification(controller)
@@ -273,6 +275,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         lastScreenPreference = Preferences.shared.screenPreference
         lastIdleMark = Preferences.shared.idleMark
         lastIdleMarkPosition = Preferences.shared.idleMarkPosition
+        lastIdleMarkTint = Preferences.shared.idleMarkTint
         lastConfigurationSignature = configurationSignature()
 
         // Push the stored configuration in immediately, before the first poll.
@@ -315,6 +318,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if idleMarkPosition != lastIdleMarkPosition {
             lastIdleMarkPosition = idleMarkPosition
             panelController?.idleMarkPosition = idleMarkPosition
+        }
+
+        let idleMarkTint = Preferences.shared.idleMarkTint
+        if idleMarkTint != lastIdleMarkTint {
+            lastIdleMarkTint = idleMarkTint
+            panelController?.idleMarkTint = idleMarkTint
         }
 
         let signature = configurationSignature()
