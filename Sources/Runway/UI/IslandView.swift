@@ -41,6 +41,18 @@ struct IslandView: View {
                 }
             }
         }
+        // Content lives inside the DRAWN island, not inside its frame.
+        //
+        // Under a cutout `IslandShape` insets its straight sides by a shoulder
+        // each, so the frame is 12pt wider than the black either side of it —
+        // dead width that belongs to the concave flare. Every row below pads
+        // itself from the frame, which off a notch is the same thing and under
+        // one is not: at rest the badge subtracted the shoulder by hand, but
+        // the expanded panel never did, so its rows sat flush against the
+        // island's edge and the footer — padded 10 where the shoulder is 12 —
+        // was clipped by the very shape it was drawn in. Paying it once here
+        // keeps the two states honest with one number.
+        .padding(.horizontal, contentInset)
         .frame(width: currentWidth)
         .fixedSize(horizontal: false, vertical: true)
         .background(background)
@@ -97,6 +109,15 @@ struct IslandView: View {
             : NotchGeometry.Width.resting(hasNotch: hasNotch, notchWidth: notchWidth)
     }
 
+    /// How far in from the frame the content has to start.
+    ///
+    /// The shoulder under a cutout, nothing off one: `IslandShape` draws its
+    /// body inset by that much on each side, and anything painted out there is
+    /// painted on the flare — or, past it, clipped away entirely.
+    private var contentInset: CGFloat {
+        hasNotch ? NotchGeometry.Width.shoulder : 0
+    }
+
     /// Resting badge for a notched Mac.
     ///
     /// Everything the island knows, in about eleven points of height: the worst
@@ -145,7 +166,8 @@ struct IslandView: View {
                 IdleMark(
                     height: 16,
                     isSuspended: model.isSuspended,
-                    position: model.idleMarkPosition
+                    position: model.idleMarkPosition,
+                    tint: model.idleMarkTint
                 )
                 .transition(.opacity)
             }
@@ -156,9 +178,9 @@ struct IslandView: View {
         // the same slack — SwiftUI splits it, and `leading` would not have come
         // out flush left.
         .frame(maxWidth: .infinity, alignment: restAlignment)
-        // Never under the shoulders: the flare is where the island stops being
-        // the cutout's width, so content that runs into it hangs off the notch.
-        .padding(.horizontal, NotchGeometry.Width.shoulder + 4)
+        // The shoulders are already off the table — see `contentInset`. What
+        // is left is the air between the mark and the edge of the cutout.
+        .padding(.horizontal, 4)
         .frame(height: restRowHeight)
         .padding(.bottom, isIdle ? 5 : 4)
         .transition(.opacity)
@@ -244,7 +266,8 @@ struct IslandView: View {
                             height: 13,
                             isSuspended: model.isSuspended,
                             isAttentive: true,
-                            position: model.idleMarkPosition
+                            position: model.idleMarkPosition,
+                            tint: model.idleMarkTint
                         )
                         .frame(width: 18)
                         Text("nothing running")
