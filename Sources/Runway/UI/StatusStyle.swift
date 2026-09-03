@@ -368,8 +368,8 @@ struct StatusGlyph: View {
     }
 }
 
-/// The in-flight ring: a track, a sweeping head, and — once the run's steps are
-/// known — an arc that fills clockwise as they settle.
+/// The in-flight ring: a track, a sweeping head trailing its own wake, and —
+/// once the run's steps are known — an arc that fills clockwise as they settle.
 ///
 /// The head keeps moving even when the arc does not, which is the whole reason
 /// it is separate: a job stuck for four minutes on one step has a frozen
@@ -399,26 +399,72 @@ struct ActivityRing: View {
                     .animation(.spring(duration: 0.55, bounce: 0.12), value: progress)
             }
 
-            // The head. Its LENGTH says whether work is happening — a long arc
-            // for a running job, a bare tick for one still queued — while its
-            // speed stays fixed. Varying the duration instead looked better
-            // and did not work: the animation is bound to `spin`, which only
-            // ever changes once, so a ring that appeared while the job was
-            // queued kept the slow sweep for the rest of the run.
-            Circle()
-                .trim(from: 0, to: isMoving ? 0.24 : 0.07)
-                .stroke(colour.opacity(isMoving ? 1 : 0.7),
-                        style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+            comet
                 .rotationEffect(.degrees(spin ? 270 : -90))
                 .animation(sweep, value: spin)
         }
         .onAppear { spin = !reduceMotion }
     }
 
+    /// The head, with its own wake behind it.
+    ///
+    /// Its LENGTH says whether work is happening — a long tail for a running
+    /// job, a bare stub for one still queued — while its speed stays fixed.
+    /// Varying the duration instead looked better and did not work: the
+    /// animation is bound to `spin`, which only ever changes once, so a ring
+    /// that appeared while the job was queued kept the slow sweep for the rest
+    /// of the run.
+    ///
+    /// The wake is an `AngularGradient` rather than a flat arc because at nine
+    /// points a bare arc has no direction to it: it is a dash that jitters, and
+    /// which way it is going is most of what the mark is for. A gradient
+    /// running from transparent at the tail to solid at the head costs the same
+    /// single stroke and answers that without another layer.
+    private var comet: some View {
+        ZStack {
+            // `trim` starts at 3 o'clock and runs clockwise, and so does an
+            // angular gradient's own angle, so the two line up with no
+            // correction between them. The arc is then swung back by its whole
+            // length, which puts its HEAD — rather than its tail — at 3
+            // o'clock, where the head disc below is drawn.
+            Circle()
+                .trim(from: 0, to: tail)
+                .stroke(
+                    AngularGradient(
+                        stops: [
+                            .init(color: colour.opacity(0), location: 0),
+                            .init(color: colour.opacity(0.34 * headOpacity), location: 0.62),
+                            .init(color: colour.opacity(headOpacity), location: 1)
+                        ],
+                        center: .center,
+                        startAngle: .degrees(0),
+                        endAngle: .degrees(Double(360 * tail))
+                    ),
+                    style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+                )
+                .rotationEffect(.degrees(Double(-360 * tail)))
+
+            // The head itself, drawn rather than left to the stroke's round
+            // cap. The gradient only reaches full strength in its last fraction
+            // of a degree, and a wake whose brightest pixel is also its last
+            // one reads as a tail with nothing on the end of it.
+            Circle()
+                .fill(colour.opacity(headOpacity))
+                .frame(width: lineWidth, height: lineWidth)
+                .offset(x: (size - lineWidth) / 2)
+        }
+    }
+
+    /// How much of the circle the wake covers. A queued job gets a stub, so the
+    /// ring can say "nothing is moving yet" without having to stop.
+    private var tail: CGFloat { isMoving ? 0.58 : 0.12 }
+
+    private var headOpacity: Double { isMoving ? 1 : 0.7 }
+
     /// A full turn, from -90° to 270°.
     private var sweep: Animation? {
         guard !reduceMotion else { return nil }
-        return .linear(duration: 1.2).repeatForever(autoreverses: false)
+        return .linear(duration: 1.05).repeatForever(autoreverses: false)
     }
 }
 
