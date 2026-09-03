@@ -177,7 +177,7 @@ public actor GitHubClient {
     ///
     /// An ephemeral configuration has no disk store at all, which also means
     /// the token never reaches a persistent cookie or credential file.
-    nonisolated(unsafe) private static let sharedSession: URLSession = {
+    nonisolated public static let sharedSession: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.urlCache = nil
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
