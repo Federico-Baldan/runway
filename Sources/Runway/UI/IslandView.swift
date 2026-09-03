@@ -422,11 +422,14 @@ struct IslandView: View {
 
 /// Per-run job detail, shown only when the island is expanded.
 struct JobDetail: View {
-    /// How many step dots a job draws before it starts counting instead.
+    /// How many steps a job draws individually before the bar fills
+    /// proportionally instead.
     ///
-    /// Twenty-four at 7pt plus 3pt of air is 240pt, which fits inside the
-    /// 620pt expanded island next to a 96pt job name with room left for the
-    /// running step's label.
+    /// It used to be a width budget: twenty-four dots at 7pt plus 3pt of air is
+    /// 240pt, which was what fitted. The bar is 132pt whatever it holds, so
+    /// this is now purely about legibility — twenty-four segments across 132pt
+    /// leaves each one about 4.5pt wide, and much under that a segment stops
+    /// being a thing you can see the colour of.
     static let stepDotLimit = 24
 
     let run: WorkflowRun
@@ -448,12 +451,25 @@ struct JobDetail: View {
                     blocked: run.isBlockedOnApproval,
                     isSuspended: isSuspended
                 )
-                Text(run.repositoryName)
-                    .font(.system(size: 10.5, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.88))
+                // No repository name here.
+                //
+                // The pill prints it sixteen points above this row and never
+                // scrolls away, so a second copy bought nothing and cost the
+                // one line the panel has for saying which commit this is. What
+                // stands in its place — the run number, the branch, the wall
+                // time — is what somebody reads *after* they already know which
+                // repo broke.
                 Text("#\(run.runNumber)")
-                    .font(.system(size: 9, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.4))
+                    .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.80))
+                if let branch = run.headBranch {
+                    Text(branch)
+                        .font(.system(size: 9.5, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.5))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help("Branch this run was started from")
+                }
                 if run.runAttempt > 1 {
                     Text("attempt \(run.runAttempt)")
                         .font(.system(size: 9, design: .monospaced))
@@ -464,6 +480,16 @@ struct JobDetail: View {
                 }
                 if showActor { ActorChip(run: run, compact: true) }
                 Spacer(minLength: 0)
+                // How long the whole run took, next to the jobs it is the sum
+                // of. The pill carries this too, but the pill is gone the
+                // moment somebody scrolls their eye down here.
+                if let seconds = run.duration {
+                    Text(IslandFormat.duration(seconds))
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.42))
+                        .monospacedDigit()
+                        .help("Took \(IslandFormat.duration(seconds)) to run")
+                }
                 if run.isBlockedOnApproval {
                     ApprovalChip(run: run)
                 }
@@ -489,60 +515,19 @@ struct JobDetail: View {
                     .foregroundStyle(.white.opacity(0.35))
             }
 
-            // One line per job: the mark, the name, the steps as dots, and the
-            // name of the step actually running.
+            // One line per job: the mark, the name, a bar, the count, and the
+            // one step worth naming.
             //
-            // The dots used to carry a label each. On a real workflow that is
+            // The steps used to carry a label each. On a real workflow that is
             // twenty of them — "Set up job", "Post Run actions/create-github-app-token@1b10c78…",
             // one line per action, SHA and all — and the expanded island became
             // a wall of text taller than the window it hangs from, which is
-            // what a run's page on GitHub is already for. The dots keep every
+            // what a run's page on GitHub is already for. The bar keeps every
             // step's *state*, which is the part you cannot get at a glance
-            // anywhere else; the one name worth printing is the step that is
-            // running right now, and it gets printed once.
+            // anywhere else; the one name worth printing is the step running
+            // right now — or, on a job that broke, the step that broke it.
             ForEach(run.jobList) { job in
-                HStack(alignment: .center, spacing: 7) {
-                    StatusGlyph(status: job.status, size: 8, blocked: job.isBlockedOnApproval)
-                    Text(job.name)
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(StatusStyle.color(for: job.status).opacity(0.95))
-                        .frame(width: 96, alignment: .leading)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .help(job.name)
-
-                    // A fixed strip, not a flow. `FlowLayout` reports whatever
-                    // width it is offered, so in an `HStack` it takes the lot
-                    // and leaves the step name beside it nothing to render in.
-                    // Capped instead: a job with sixty steps is a job whose
-                    // dots stopped being readable long before sixty.
-                    HStack(spacing: 3) {
-                        ForEach(Array(job.steps.prefix(Self.stepDotLimit))) { step in
-                            StepDot(status: step.status, name: step.name, job: job.name)
-                        }
-                        if job.steps.count > Self.stepDotLimit {
-                            Text("+\(job.steps.count - Self.stepDotLimit)")
-                                .font(.system(size: 9, design: .monospaced))
-                                .foregroundStyle(.white.opacity(0.38))
-                        }
-                        if job.steps.isEmpty {
-                            Text("—")
-                                .font(.system(size: 10, design: .monospaced))
-                                .foregroundStyle(.white.opacity(0.3))
-                        }
-                    }
-                    .fixedSize()
-
-                    if let running = job.steps.first(where: { $0.status == .inProgress }) {
-                        Text(running.name)
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundStyle(.white.opacity(0.72))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
-
-                    Spacer(minLength: 0)
-                }
+                jobRow(job)
             }
 
             // Who GitHub will accept a click from. Worth the line: "waiting for
@@ -581,6 +566,91 @@ struct JobDetail: View {
             withAnimation(.easeOut(duration: 0.14)) { isHovering = hovering }
         }
         .onTapGesture { onOpen(run) }
+    }
+
+    /// One job, as a row.
+    ///
+    /// The failed one is the only row in the panel with a ground of its own.
+    /// That is the whole point of it: three jobs drawn identically make the eye
+    /// read all three to find the one that matters, and on a panel that exists
+    /// to be glanced at, "read all three" is the cost being paid over and over.
+    /// A rail and a wash of `failure` at a tenth take it to nothing. Nothing
+    /// else in here is allowed a background, so there is never a second thing
+    /// competing for the same glance.
+    @ViewBuilder
+    private func jobRow(_ job: Job) -> some View {
+        // Only real breakage, never a rejection: `isFailure` deliberately
+        // excludes `.rejected`, and a gate somebody turned down themselves is
+        // not something to shout at them about. See `RunStatus.isFailure`.
+        let blamed = job.status.isFailure
+
+        HStack(alignment: .center, spacing: 7) {
+            StatusGlyph(status: job.status, size: 8, blocked: job.isBlockedOnApproval)
+            Text(job.name)
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(StatusStyle.color(for: job.status).opacity(0.95))
+                .frame(width: 96, alignment: .leading)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .help(job.name)
+
+            StepBar(job: job, segmentCap: Self.stepDotLimit)
+
+            if let note = jobNote(job) {
+                Text(note)
+                    .font(.system(size: 9.5, design: .monospaced))
+                    .foregroundStyle(blamed
+                                     ? StatusPalette.failure.opacity(0.92)
+                                     : .white.opacity(0.62))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(note)
+            }
+
+            Spacer(minLength: 0)
+        }
+        // The ground grows, the row does not.
+        //
+        // Padding the blamed row instead would push its glyph and its name
+        // inward by the same amount, so the one row you are meant to read
+        // fastest would be the one whose columns no longer line up with the
+        // rows above it. Negative padding on the *background* spends the width
+        // outward instead: every row's content stays on the same two vertical
+        // rules, and only the paint bleeds. It is the mirror of the positive
+        // inset the hover ground above uses for the same reason.
+        .background(
+            ZStack(alignment: .leading) {
+                StatusPalette.failure.opacity(0.10)
+                Rectangle()
+                    .fill(StatusPalette.failure)
+                    .frame(width: 2)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+            .padding(.vertical, -2.5)
+            .padding(.horizontal, -6)
+            .opacity(blamed ? 1 : 0)
+        )
+        .animation(Motion.content, value: blamed)
+    }
+
+    /// The one line of prose a job row earns: what is running, or what broke.
+    ///
+    /// A job with no steps at all is the case this exists for. GitHub returns
+    /// steps only once a job starts, so a job that failed before it started —
+    /// a bad `runs-on`, a missing secret, an unresolvable reusable workflow —
+    /// arrives with an empty array, and the row used to print an em dash for
+    /// it. The dash said nothing the colour had not already said. The job's own
+    /// conclusion is a real answer, and saying where it came from is what stops
+    /// somebody opening the browser to find out there was nothing to find.
+    private func jobNote(_ job: Job) -> String? {
+        if let running = job.steps.first(where: { $0.status == .inProgress }) {
+            return running.name
+        }
+        guard job.status.isFailure else { return nil }
+        if let broke = job.steps.first(where: { $0.status.isFailure }) {
+            return broke.name
+        }
+        return "no step detail from GitHub"
     }
 
     /// The rejection, with the reviewer's comment when they left one.
@@ -660,11 +730,12 @@ struct RunLine: View {
                 ApprovalChip(run: run, compact: true)
                     .layoutPriority(2)
             } else if let job = run.firstRunningJob {
-                Text(job.name)
+                Text(runningLabel(job))
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.66))
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .help(runningHelp(job))
             }
 
             Spacer(minLength: 4)
@@ -676,6 +747,10 @@ struct RunLine: View {
             // read at a glance; reserving the width is what stops the row
             // reflowing — and the duration next to it jumping — the instant the
             // pointer arrives.
+            openControl
+                .frame(width: 13)
+                .opacity(isHovering ? 1 : 0)
+
             dismissControl
                 .frame(width: 15)
                 .opacity(isHovering ? 1 : 0)
@@ -729,6 +804,44 @@ struct RunLine: View {
     private var waitingLabel: String {
         guard let since = run.updatedAt ?? run.startedAt else { return "—" }
         return IslandFormat.duration(now.timeIntervalSince(since))
+    }
+
+    /// What is happening right now, at the finest grain the payload allows.
+    ///
+    /// The job's name is the coarse answer and was all this row printed. Once
+    /// the jobs endpoint has sent steps, the step actually executing is the
+    /// better half of the sentence — "terraform-apply" says which part of the
+    /// workflow is busy, "Run terraform apply" says what the machine is doing,
+    /// and the second one is the line people were opening the browser to read.
+    private func runningLabel(_ job: Job) -> String {
+        job.runningSteps.first?.name ?? job.name
+    }
+
+    private func runningHelp(_ job: Job) -> String {
+        guard let step = job.runningSteps.first else { return "Running \(job.name)" }
+        return "\(job.name) › \(step.name)"
+    }
+
+    /// The row opens the run in a browser; this is what says so.
+    ///
+    /// A tooltip used to be the only thing that told you, and it told you by
+    /// painting a box over three of the five lines you were reading, on hover,
+    /// which is exactly when you were reading them. An arrow in the row's own
+    /// trailing edge says the same thing in thirteen points and covers nothing.
+    /// The `.help` text stays for VoiceOver and for the pointer that lingers;
+    /// it is just no longer the only channel.
+    ///
+    /// Not a button. The whole row is already the click target, and a second
+    /// one inside it would be two hit regions doing the same job — with the
+    /// inner one stealing clicks from the outer. Width is reserved like the
+    /// cross beside it, for the same reason.
+    private var openControl: some View {
+        Image(systemName: "arrow.up.forward")
+            .font(.system(size: 8, weight: .bold))
+            .foregroundStyle(.white.opacity(0.5))
+            .frame(width: 13, height: 13)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 
     /// Take this run off the island.

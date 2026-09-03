@@ -666,40 +666,215 @@ struct EnvironmentChip: View {
 
 // MARK: - Job and step tracks
 
-/// The run's jobs as a segmented track — one segment per step, one group per
-/// job, in reading order.
+/// A job's steps as one **fixed-width** bar, with the count spelled out beside it.
 ///
-/// GitLab drew stages, each holding jobs. GitHub's equivalent nesting is one
-/// level down — a run holds **jobs**, each holding **steps** — so a job takes
-/// the place of a stage here and a step takes the place of a job.
+/// The strip this replaces was as long as the job had steps, which put the most
+/// visible dimension in the row behind the least useful number: a ten-step job
+/// and a sixteen-step job drew different lengths while being equally far along,
+/// and the panel's width budget depended on what somebody put in their YAML. At
+/// a constant width the coloured fraction means *progress*, two jobs are
+/// comparable at a glance, and sixty steps cost exactly what six do.
 ///
-/// Segments rather than the dots this replaced. A dot per step with three
-/// points of air around it spent most of its width on the gaps, and at four
-/// jobs of six steps the strip pushed the elapsed time off the end of the pill.
-/// A 4pt segment carries the same colour in a third of the room, and abutting
-/// them turns the strip into something a progress bar's worth of meaning can be
-/// read off in one glance.
+/// The count beside it is the other half. A bar answers "roughly how far",
+/// which is what the eye wants; `12/16` answers "exactly where", which is what
+/// you need before deciding whether to go and look. Neither is worth counting
+/// dots for.
+struct StepBar: View {
+    let job: Job
+    /// Track width. Constant by design — see the note above.
+    var width: CGFloat = 132
+    var height: CGFloat = 5
+    /// The pill's mini bar drops the fraction; the expanded panel keeps it.
+    var showsCount: Bool = true
+    /// Above this many steps the bar stops drawing one segment each and fills
+    /// proportionally instead. A segment thinner than about two points is a
+    /// smudge, and a job with sixty steps stopped being readable step-by-step
+    /// long before sixty — the same argument that capped the dots this replaces.
+    var segmentCap: Int = 24
+    /// Whether the running segment breathes. Off in the pill, on in the panel:
+    /// see `shouldPulse`.
+    var pulses: Bool = true
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pulse = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            track
+
+            if showsCount {
+                Text(label)
+                    .font(.system(size: 9.5, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.55))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(width: 42, alignment: .leading)
+                    .help(countHelp)
+            }
+        }
+        .onAppear { pulse = shouldPulse }
+        .onChange(of: shouldPulse) { _, wanted in pulse = wanted }
+    }
+
+    // MARK: Track
+
+    @ViewBuilder
+    private var track: some View {
+        Group {
+            if job.steps.isEmpty {
+                // A job whose steps have not arrived yet still deserves a bar:
+                // the jobs endpoint returns steps only once the job starts, and
+                // an empty slot reads as a rendering bug. Its own status is a
+                // real answer — "failed" says more than the dash this replaces.
+                Rectangle().fill(fill(for: job.status))
+            } else if job.steps.count > segmentCap {
+                proportional
+            } else {
+                segments
+            }
+        }
+        .frame(width: width, height: height)
+        .clipShape(Capsule(style: .continuous))
+        .animation(Motion.content, value: settled)
+    }
+
+    /// One segment per step, sharing the width equally.
+    private var segments: some View {
+        HStack(spacing: 1) {
+            ForEach(job.steps) { step in
+                Rectangle()
+                    .fill(fill(for: step.status))
+                    .opacity(step.status == .inProgress && pulse ? 0.55 : 1)
+                    .animation(pulseAnimation, value: pulse)
+                    .frame(maxWidth: .infinity)
+                    .help("\(job.name) › \(step.name): \(step.status.label)")
+            }
+        }
+    }
+
+    /// Too many steps to draw one each: a single fill, proportional to how many
+    /// have settled.
+    private var proportional: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                Color.white.opacity(0.16)
+                Rectangle()
+                    .fill(StatusStyle.color(for: job.status).opacity(0.92))
+                    .frame(width: geometry.size.width * fraction)
+            }
+        }
+        .help(countHelp)
+    }
+
+    // MARK: Numbers
+
+    /// Steps that have reached a conclusion.
+    private var settled: Int {
+        job.steps.filter { $0.status != .inProgress && !isPending($0.status) }.count
+    }
+
+    private var fraction: Double {
+        guard !job.steps.isEmpty else { return 0 }
+        return Double(settled) / Double(job.steps.count)
+    }
+
+    /// `12/16`, or the job's own conclusion when GitHub has sent no steps yet.
+    private var label: String {
+        job.steps.isEmpty ? job.status.label : "\(settled)/\(job.steps.count)"
+    }
+
+    private var countHelp: String {
+        job.steps.isEmpty
+            ? "\(job.name): \(job.status.label) — GitHub has sent no step detail"
+            : "\(job.name): \(settled) of \(job.steps.count) steps finished"
+    }
+
+    // MARK: Paint
+
+    private func fill(for status: RunStatus) -> Color {
+        isPending(status)
+            ? Color.white.opacity(0.16)
+            : StatusStyle.color(for: status).opacity(0.92)
+    }
+
+    /// Not-yet-started work is a dim rail rather than a filled segment.
+    private func isPending(_ status: RunStatus) -> Bool {
+        status == .queued || status == .pending || status == .requested
+    }
+
+    // MARK: Motion
+
+    /// Only the running segment breathes, and only where it is cheap.
+    ///
+    /// The dots this replaces pulsed per step. One step runs at a time inside a
+    /// job, so this is the same cost rather than more — and it stays off the
+    /// pill, where the island has already decided that per-step animation
+    /// behind a glanceable badge was the wrong trade.
+    private var shouldPulse: Bool {
+        pulses && !reduceMotion && job.steps.contains(where: { $0.status == .inProgress })
+    }
+
+    private var pulseAnimation: Animation? {
+        guard shouldPulse else { return nil }
+        return .easeInOut(duration: 0.65).repeatForever(autoreverses: true)
+    }
+}
+
+/// The run's jobs as a row of mini bars — one bar per job, in reading order.
+///
+/// GitHub's nesting is a run holding **jobs**, each holding **steps**, so a bar
+/// is a job and its segments are that job's steps.
+///
+/// One bar per job rather than one segment per step laid end to end. The old
+/// strip grew with the run's total step count, so a workflow that gained a
+/// linting step pushed the elapsed time further along a 32pt row with no width
+/// to spare; worse, its length said "this run has many steps" when the only
+/// question the pill is ever asked is "how far along is it". A bar is 34pt
+/// whatever it holds, so the width budget follows the job count — which is
+/// stable — and what is left over pays for the name of the step actually
+/// running.
 struct JobTrack: View {
     let run: WorkflowRun
     /// Compact drops the trailing job name, for the collapsed pill.
     var compact: Bool = false
 
+    /// How many bars the pill draws before it starts counting instead.
+    ///
+    /// A bounded budget is the entire claim this type makes, and a matrix build
+    /// is what tests it: twelve jobs of four steps each drew a narrow strip
+    /// under the old step-driven layout and would draw 34pt apiece under this
+    /// one, which is 400pt of a 520pt row. Five bars plus an overflow count is
+    /// 190pt, and past five the individual bars had stopped being separable
+    /// anyway — what is left to say is *how many*, and a number says it.
+    private var barLimit: Int { compact ? 5 : 8 }
+
+    private var shown: [Job] { Array(run.jobList.prefix(barLimit)) }
+    private var hidden: Int { max(run.jobList.count - barLimit, 0) }
+
     var body: some View {
         HStack(spacing: compact ? 5 : 7) {
-            ForEach(Array(run.jobList.enumerated()), id: \.offset) { _, job in
-                HStack(spacing: 1.5) {
-                    // A job whose steps have not arrived yet still deserves a
-                    // segment: the jobs endpoint returns steps only once the
-                    // job starts, and an empty row reads as a rendering bug.
-                    if job.steps.isEmpty {
-                        StepSegment(status: job.status, name: job.name, job: job.name)
-                    } else {
-                        ForEach(job.steps) { step in
-                            StepSegment(status: step.status, name: step.name, job: job.name)
-                        }
-                    }
-                }
+            ForEach(Array(shown.enumerated()), id: \.offset) { _, job in
+                StepBar(
+                    job: job,
+                    width: compact ? 34 : 44,
+                    height: compact ? 4 : 5,
+                    showsCount: false,
+                    segmentCap: compact ? 12 : 16,
+                    // The pill is the one place the island has decided not to
+                    // animate per step. See `StepBar.shouldPulse`.
+                    pulses: false
+                )
+                .help("\(job.name): \(job.status.label)")
                 .transition(.scale(scale: 0.4, anchor: .leading).combined(with: .opacity))
+            }
+
+            if hidden > 0 {
+                Text("+\(hidden)")
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.38))
+                    .monospacedDigit()
+                    .help("\(hidden) more job\(hidden == 1 ? "" : "s") — hover to see them all")
             }
 
             if !compact, let running = runningLabel {
@@ -718,79 +893,5 @@ struct JobTrack: View {
         let names = run.runningJobs.map(\.name)
         guard !names.isEmpty else { return nil }
         return names.joined(separator: ", ")
-    }
-}
-
-/// One step, as a segment of the track.
-struct StepSegment: View {
-    let status: RunStatus
-    let name: String
-    let job: String
-
-    private var isRunning: Bool { status == .inProgress }
-    /// Not-yet-started work is a dim rail rather than a filled segment.
-    private var isPending: Bool {
-        status == .queued || status == .pending || status == .requested
-    }
-
-    private var colour: Color { StatusStyle.color(for: status) }
-    private var width: CGFloat { isRunning ? 7 : 4.5 }
-
-    var body: some View {
-        // A segment says its state with colour and width, and stops there.
-        //
-        // It used to carry a white highlight travelling back and forth inside
-        // it and a coloured glow around it — per step, on every job, forever.
-        // Four jobs of twenty steps is eighty of them animating at once behind
-        // a pill you are meant to glance at, and the one thing genuinely worth
-        // seeing move — the run's own ring — was competing with all of it. The
-        // running segment is still the wide one, which is what the eye actually
-        // lands on.
-        Capsule(style: .continuous)
-            .fill(isPending ? Color.white.opacity(0.16) : colour.opacity(0.92))
-            .frame(width: width, height: 3.5)
-            .animation(Motion.content, value: status)
-            .help("\(job) › \(name): \(status.label)")
-    }
-}
-
-/// One step as a dot, for the expanded panel's per-job strip.
-struct StepDot: View {
-    let status: RunStatus
-    let name: String
-    let job: String
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var pulse = false
-
-    private var isRunning: Bool { status == .inProgress }
-    private var isPending: Bool {
-        status == .queued || status == .pending || status == .requested
-    }
-    private var isBlocked: Bool { status.isAwaitingApproval }
-    private var colour: Color { StatusStyle.color(for: status) }
-
-    var body: some View {
-        ZStack {
-            if isPending {
-                Circle().strokeBorder(colour.opacity(0.55), lineWidth: 1.4)
-            } else {
-                Circle().fill(StatusPalette.fill(colour))
-            }
-        }
-        .frame(width: 7, height: 7)
-        .scaleEffect(pulse ? 1.35 : 1)
-        .opacity(pulse ? 0.5 : 1)
-        .animation(pulseAnimation, value: pulse)
-        .onAppear { pulse = shouldPulse }
-        .onChange(of: status) { _, _ in pulse = shouldPulse }
-        .help("\(job) › \(name): \(status.label)")
-    }
-
-    private var shouldPulse: Bool { (isRunning || isBlocked) && !reduceMotion }
-
-    private var pulseAnimation: Animation? {
-        guard shouldPulse else { return nil }
-        return .easeInOut(duration: isBlocked ? 1.2 : 0.65).repeatForever(autoreverses: true)
     }
 }
