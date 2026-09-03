@@ -248,7 +248,11 @@ public final class NotchPanelController {
             hostingView.interactiveWidth = NotchGeometry.Width.resting(
                 hasNotch: true, notchWidth: notchWidth
             )
-            hostingView.interactiveHeight = notchHeight + 20
+            // The cutout, plus the band the island hangs below it: a 17pt
+            // rest row and 5pt of padding at its tallest, which is the idle
+            // mark. Hovering has to reach the whole of what is drawn — the
+            // mark is the part people aim at.
+            hostingView.interactiveHeight = notchHeight + 24
             return
         }
 

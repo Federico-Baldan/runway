@@ -142,7 +142,7 @@ struct IslandView: View {
                 // and blinks. See `IdleMark` for why the island is on screen
                 // at all in this state, and what it costs.
                 IdleMark(
-                    height: 12,
+                    height: 16,
                     isSuspended: model.isSuspended,
                     position: model.idleMarkPosition
                 )
@@ -158,9 +158,18 @@ struct IslandView: View {
         // Never under the shoulders: the flare is where the island stops being
         // the cutout's width, so content that runs into it hangs off the notch.
         .padding(.horizontal, NotchGeometry.Width.shoulder + 4)
-        .frame(height: 14)
+        .frame(height: restRowHeight)
         .padding(.bottom, isIdle ? 5 : 4)
         .transition(.opacity)
+    }
+
+    /// How tall the resting row is.
+    ///
+    /// Sized for a status glyph, except when what it is holding is the mark.
+    /// A glyph is glanced at and a blinking mark is looked at, and at twelve
+    /// points the second one was too small to be worth either.
+    private var restRowHeight: CGFloat {
+        isIdle && model.showsIdleMark ? 17 : 14
     }
 
     /// Centred, unless it is the idle mark and the user moved it.
@@ -231,12 +240,12 @@ struct IslandView: View {
                 if model.showsIdleMark {
                     HStack(spacing: 8) {
                         IdleMark(
-                            height: 11,
+                            height: 13,
                             isSuspended: model.isSuspended,
                             isAttentive: true,
                             position: model.idleMarkPosition
                         )
-                        .frame(width: 16)
+                        .frame(width: 18)
                         Text("nothing running")
                             .font(.system(size: 11))
                             .foregroundStyle(.white.opacity(0.34))
