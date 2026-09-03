@@ -101,8 +101,32 @@ public final class StatusItemController {
         button.toolTip = "Runway"
     }
 
-    /// Build the icon for a mood.
+    /// Every icon this item can draw, built once.
+    ///
+    /// There are seven of them — six moods and the no-token warning — and they
+    /// never change. They were being rebuilt from scratch on demand, which
+    /// `rebuildMenu` does up to thirteen times in a pass: once per approval row
+    /// and once per run row, on top of the button's own. Each rebuild is either
+    /// a fresh `NSImage` with a drawing handler (the brand mark) or an SF Symbol
+    /// lookup plus two `SymbolConfiguration` allocations, and a poll rebuilds
+    /// the menu every five seconds while something is building.
+    ///
+    /// Sharing one `NSImage` between menu items is fine — AppKit does not
+    /// mutate them — and the brand mark is drawn through a handler rather than
+    /// captured as a bitmap, so a cached instance still re-renders at whatever
+    /// scale the display it lands on asks for.
+    private static var symbolCache: [String: NSImage] = [:]
+
+    /// Build the icon for a mood, or hand back the one already built.
     private static func symbol(for mood: IslandMood, hasToken: Bool = true) -> NSImage? {
+        let key = hasToken ? "mood:\(mood.rank)" : "no-token"
+        if let cached = symbolCache[key] { return cached }
+        let image = makeSymbol(for: mood, hasToken: hasToken)
+        if let image { symbolCache[key] = image }
+        return image
+    }
+
+    private static func makeSymbol(for mood: IslandMood, hasToken: Bool) -> NSImage? {
         guard hasToken else {
             return tinted("exclamationmark.circle", .systemOrange, template: false)
         }
