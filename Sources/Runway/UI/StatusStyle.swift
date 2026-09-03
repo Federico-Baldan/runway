@@ -830,8 +830,21 @@ struct StepBar: View {
     // MARK: Numbers
 
     /// Steps that have reached a conclusion.
+    ///
+    /// Counted in place, for the reason `WorkflowRun.progress` gives one file
+    /// over: `filter { … }.count` builds a whole array of `Step` and then keeps
+    /// nothing but its length. Four readers ask for this on every body pass —
+    /// the track's `.animation(value:)`, `fraction`, `label`, and `countHelp`,
+    /// which is a `.help` argument and so is built whether or not anybody
+    /// hovers — and a pill draws one of these per job per run, once a second,
+    /// for as long as anything is building. That is an array allocation per
+    /// job per reader per frame for a number that is one integer.
     private var settled: Int {
-        job.steps.filter { $0.status != .inProgress && !isPending($0.status) }.count
+        var count = 0
+        for step in job.steps where step.status != .inProgress && !isPending(step.status) {
+            count += 1
+        }
+        return count
     }
 
     private var fraction: Double {

@@ -372,6 +372,18 @@ public struct Job: Codable, Sendable, Hashable, Identifiable {
     /// Steps still executing.
     public var runningSteps: [Step] { steps.filter { $0.status == .inProgress } }
 
+    /// The first step still executing, for the rows that print one name.
+    ///
+    /// The same fix `WorkflowRun.firstRunningJob` already carries, one level
+    /// further down and missed when that one was made: `runningSteps.first`
+    /// filters the whole step list and then throws away all but its head. A job
+    /// in a real workflow has twenty or thirty steps, `RunLine` asks for this
+    /// twice per run — once for the label, once for the `.help` text, which is
+    /// a modifier argument and so is built whether or not anybody hovers — and
+    /// the collapsed island redraws once a second for as long as anything is
+    /// running.
+    public var firstRunningStep: Step? { steps.first { $0.status == .inProgress } }
+
     /// Wall time, live for a running job.
     public var duration: TimeInterval? {
         guard let startedAt else { return nil }

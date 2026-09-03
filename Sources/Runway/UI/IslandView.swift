@@ -814,11 +814,11 @@ struct RunLine: View {
     /// workflow is busy, "Run terraform apply" says what the machine is doing,
     /// and the second one is the line people were opening the browser to read.
     private func runningLabel(_ job: Job) -> String {
-        job.runningSteps.first?.name ?? job.name
+        job.firstRunningStep?.name ?? job.name
     }
 
     private func runningHelp(_ job: Job) -> String {
-        guard let step = job.runningSteps.first else { return "Running \(job.name)" }
+        guard let step = job.firstRunningStep else { return "Running \(job.name)" }
         return "\(job.name) › \(step.name)"
     }
 
