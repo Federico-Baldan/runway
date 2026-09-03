@@ -91,7 +91,12 @@ public final class StatusItemController {
         guard let base = NSImage(systemSymbolName: name, accessibilityDescription: name) else {
             return nil
         }
-        let config = NSImage.SymbolConfiguration(paletteColors: [colour])
+        // Pinned to the same optical size as the brand mark rather than left at
+        // whatever AppKit picks. The item swaps between the two on every state
+        // change, and an icon that changes size when a run starts reads as the
+        // app resizing itself.
+        let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
+            .applying(NSImage.SymbolConfiguration(paletteColors: [colour]))
         let image = base.withSymbolConfiguration(config) ?? base
         image.isTemplate = template
         return image
