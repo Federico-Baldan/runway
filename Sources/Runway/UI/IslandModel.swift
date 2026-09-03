@@ -378,8 +378,8 @@ public final class IslandModel {
     /// A second is the right answer only while something on screen is actually
     /// moving: a live elapsed counter, or a finished run fading out through its
     /// linger window. A run parked on an approval does neither — `settleProgress`
-    /// returns 0 for as long as one is on screen, and its own label does not
-    /// count anything — yet `blockedLinger` keeps it there for a full hour. That
+    /// returns 0 for as long as one is on screen, and its own label counts in
+    /// minutes — yet `blockedLinger` keeps it there for a full hour. That
     /// was 3,600 wakeups for a pill that never changed a pixel, each one a
     /// filter, a sort and a complete re-derive, with a status-item redraw and a
     /// panel sync behind it. Something waiting on a person is precisely the
@@ -469,6 +469,23 @@ enum IslandFormat {
         let total = Int(seconds.rounded())
         guard total >= 60 else { return "\(max(total, 0))s" }
         return String(format: "%d:%02d", total / 60, total % 60)
+    }
+
+    /// Coarse elapsed, for the one counter the island does not redraw every
+    /// second — see `RunLine.waitingLabel`.
+    ///
+    /// Never zero and never `M:SS`. A gate that has just closed says `<1m`
+    /// rather than `0m`, which on a 15-second tick would otherwise be the first
+    /// thing four different frames all said; and one that has been sitting
+    /// since this morning says `3h 20m` rather than the `200:14` the
+    /// minutes-and-seconds form would have printed at it.
+    static func waited(_ seconds: TimeInterval) -> String {
+        let minutes = Int(max(seconds, 0)) / 60
+        guard minutes >= 1 else { return "<1m" }
+        guard minutes >= 60 else { return "\(minutes)m" }
+        let hours = minutes / 60
+        let rest = minutes % 60
+        return rest == 0 ? "\(hours)h" : "\(hours)h \(rest)m"
     }
 
     /// Live elapsed time for a running workflow.

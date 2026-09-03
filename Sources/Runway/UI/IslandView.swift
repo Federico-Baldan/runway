@@ -801,9 +801,25 @@ struct RunLine: View {
         }
     }
 
+    /// How long this run has been parked, at the grain the island actually
+    /// redraws it.
+    ///
+    /// Minutes, not `M:SS`. `IslandModel.tickSeconds` drops a blocked island to
+    /// a 15-second cadence, and the reason it gives is that a parked run "does
+    /// not count anything" — which was true of everything else on the row and
+    /// never of this label. It counted seconds against a clock that moves four
+    /// times a minute, so the number jumped 0s → 15s → 30s → 45s → 1:00, with
+    /// `.numericText()` rolling the digits through each fifteen-second leap.
+    ///
+    /// Making the label coarse is the half to change. The alternative is a
+    /// one-second ticker for a run waiting on a person, which is the 3,600
+    /// wakeups an hour that `tickSeconds` exists to refuse — and this is the
+    /// state the island sits in longest, so it is the worst place to spend
+    /// them. Nobody reads a deployment gate to the second anyway; hours are
+    /// what these actually run to, and `M:SS` had no way to say one.
     private var waitingLabel: String {
         guard let since = run.updatedAt ?? run.startedAt else { return "—" }
-        return IslandFormat.duration(now.timeIntervalSince(since))
+        return IslandFormat.waited(now.timeIntervalSince(since))
     }
 
     /// What is happening right now, at the finest grain the payload allows.
