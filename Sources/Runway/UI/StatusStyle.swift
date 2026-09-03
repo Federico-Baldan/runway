@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import SwiftUI
 
 // MARK: - Palette
@@ -436,7 +437,7 @@ struct ActivityRing: View {
             // as before, now covering Reduce Motion live rather than only at
             // launch. Reading a shared clock also puts every ring on screen in
             // phase, where each used to start from its own `onAppear`.
-            TimelineView(.animation(paused: isStill)) { context in
+            TimelineView(.animation(minimumInterval: frameInterval, paused: isStill)) { context in
                 comet.rotationEffect(.degrees(Self.sweepAngle(at: context.date)))
             }
         }
@@ -515,6 +516,65 @@ struct ActivityRing: View {
     /// motion. Pausing the schedule is what stops the wakeups — the cost the
     /// island stands every other repeating animation down to avoid.
     private var isStill: Bool { reduceMotion || isSuspended }
+
+    /// How often the sweep asks to be redrawn, or `nil` for the display's own
+    /// rate.
+    ///
+    /// `.animation` with no interval ticks at whatever the panel refreshes at,
+    /// which on any recent Mac is 120 Hz — and it does so for the entire
+    /// duration of every run on screen, which for CI is minutes at a stretch.
+    /// That is the app's largest sustained cost while something is building,
+    /// and it was the one repeating animation that had never heard of Low
+    /// Power Mode. Everything else has: the poll drops to a 30-second floor,
+    /// the idle mark drops to its lid-only vocabulary and sleeps after twenty
+    /// seconds. A 9-point ring redrawing 120 times a second through all of it
+    /// is ignoring an instruction the rest of the app takes seriously.
+    ///
+    /// Throttled rather than paused, because a *stopped* spinner is the one
+    /// thing this ring must never be — see `sweepAngle(at:)` for the bug that
+    /// cost. Fifteen frames a second on a mark this size is a slightly
+    /// coarser turn, and reading the angle off the clock means the frames that
+    /// are skipped stay skipped instead of becoming a phase error.
+    private var frameInterval: Double? {
+        PowerState.shared.isLowPower ? 1.0 / 15 : nil
+    }
+}
+
+/// The system's Low Power Mode, as something a SwiftUI body can read.
+///
+/// `ProcessInfo.isLowPowerModeEnabled` is a plain synchronous read, so a view
+/// that consults it directly is answered correctly exactly once and never told
+/// when it changes — and `ActivityRing` is not re-evaluated on a clock, so it
+/// could sit on the wrong answer for the whole length of a run. `@Observable`
+/// makes the read a dependency: the one notification the system already sends
+/// lands here, and only the views that actually asked are redrawn.
+///
+/// One observer for the process rather than one per ring, and the same
+/// `static let shared` shape `Preferences` uses, for the same reason — the
+/// property is main-actor isolated with the type, so its lazy initialiser runs
+/// on the actor its `init` needs.
+@MainActor
+@Observable
+final class PowerState {
+    static let shared = PowerState()
+
+    private(set) var isLowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
+
+    /// Held for the life of the process. Nothing ever removes it, because
+    /// nothing ever releases the singleton it belongs to.
+    @ObservationIgnored private var observer: NSObjectProtocol?
+
+    private init() {
+        observer = NotificationCenter.default.addObserver(
+            forName: NSNotification.Name.NSProcessInfoPowerStateDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.isLowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
+            }
+        }
+    }
 }
 
 // MARK: - Chips

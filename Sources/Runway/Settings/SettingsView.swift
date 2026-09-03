@@ -1144,6 +1144,15 @@ struct SettingsView: View {
             return
         }
         guard force || tokenStatus == .unknown else { return }
+        // The same guard `loadOrganizations` carries, and missing here for the
+        // same reason it was missing there: neither `force` nor the status
+        // check separates two calls made before the first has come back.
+        // Nothing disables the Verify button while the spinner is up, so a
+        // second click is one more round trip and a second writer of
+        // `tokenStatus` — and `saveToken()` calls this with `force` while the
+        // picker's `onAppear` may have one in flight already. Whichever landed
+        // last won, so a stale answer could overwrite a newer one.
+        guard !isVerifying else { return }
         isVerifying = true
         Task {
             let client = GitHubClient(baseURL: GitHubClient.baseURL(for: Preferences.shared.host))
