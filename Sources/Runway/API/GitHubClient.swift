@@ -582,18 +582,38 @@ public actor GitHubClient {
 
         switch http.statusCode {
         case 200:
+            // Decoded before it is cached, so a body this client cannot read is
+            // never paired with an ETag — otherwise every subsequent poll gets
+            // a 304 pointing at bytes that fail the same way, and the entry
+            // has to age out before an unconditional request can replace it.
+            let value = try decode(T.self, from: data)
             etags.store(key: cacheKey, etag: http.value(forHTTPHeaderField: "ETag"), body: data)
-            return Conditional(value: try decode(T.self, from: data), notModified: false)
+            // And memoised, which is what makes the *next* 304 free of the
+            // decode as well as of the rate limit. See `ETagStore.Entry.decoded`.
+            etags.memoise(value, for: cacheKey)
+            return Conditional(value: value, notModified: false)
 
         case 304:
-            // Free, but only if a body was cached. If it was evicted, drop the
-            // ETag so the next attempt is unconditional and repopulates it.
+            etags.touch(key: cacheKey)
+            // GitHub has just said the bytes are unchanged, so the value they
+            // decode to is unchanged too — and it is already here. This is the
+            // common case by an enormous margin: on a quiet account nearly
+            // every request of every poll lands on this line.
+            if let memoised: T = etags.decoded(for: cacheKey) {
+                return Conditional(value: memoised, notModified: true)
+            }
+            // No memo — the entry was evicted, or a `store` has replaced the
+            // body since. Fall back to the bytes, and memoise on the way past
+            // so this only ever happens once per body.
             guard let cached = etags.body(for: cacheKey) else {
+                // Nothing left to resolve against: drop the ETag so the next
+                // attempt is unconditional and repopulates it.
                 etags.store(key: cacheKey, etag: nil, body: Data())
                 throw GitHubError.network("Cache miss on a 304 for \(path).")
             }
-            etags.touch(key: cacheKey)
-            return Conditional(value: try decode(T.self, from: cached), notModified: true)
+            let value = try decode(T.self, from: cached)
+            etags.memoise(value, for: cacheKey)
+            return Conditional(value: value, notModified: true)
 
         case 401:
             throw GitHubError.unauthorized

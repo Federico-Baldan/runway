@@ -25,8 +25,22 @@ import Foundation
 struct ETagStore: Sendable {
     struct Entry: Sendable {
         let etag: String
-        let body: Data
+        /// The raw response body, kept only until it has been decoded once —
+        /// see `memoise(_:for:)`.
+        var body: Data
         var refreshedAt: Date
+        /// What `body` decoded to, so a 304 costs no JSON parsing.
+        ///
+        /// A 304 is GitHub saying "the bytes have not changed", and the whole
+        /// reason this store exists is that the answer is then already known.
+        /// It was still being paid for in full: every 304 re-ran
+        /// `JSONDecoder` over the cached body to rebuild a value identical to
+        /// the last one. On twenty repositories at the five-second active
+        /// cadence that is twenty run-list payloads parsed a second, each one
+        /// thirty runs deep with an ISO-8601 date on every timestamp — by some
+        /// distance the largest recurring CPU cost in an app whose entire
+        /// point is to be cheap while nothing is happening.
+        var decoded: (any Sendable)?
     }
 
     private var entries: [String: Entry] = [:]
@@ -78,9 +92,45 @@ struct ETagStore: Sendable {
         return etag
     }
 
-    /// The body cached alongside that ETag — what a 304 resolves to.
+    /// The body cached alongside that ETag — what a 304 resolves to when no
+    /// decode has been memoised for it yet.
+    ///
+    /// Empty reads as absent, because that is what `memoise(_:for:)` leaves
+    /// behind when it releases the bytes: an entry that has already been
+    /// decoded has nothing here worth handing back, and the caller's own
+    /// "cache miss on a 304" path is the right answer if the memo somehow
+    /// cannot serve it. No real response this store keeps is zero bytes — the
+    /// empty JSON array is `[]`.
     func body(for key: String) -> Data? {
-        entries[key]?.body
+        guard let body = entries[key]?.body, !body.isEmpty else { return nil }
+        return body
+    }
+
+    /// The value this entry's body decoded to, if it is still the type being
+    /// asked for.
+    ///
+    /// Typed rather than blind: one cache key only ever names one endpoint, so
+    /// the cast cannot fail in practice — but if it ever did, answering `nil`
+    /// sends the caller down the unconditional-refetch path it already has
+    /// rather than handing back somebody else's payload.
+    func decoded<Value: Sendable>(for key: String) -> Value? {
+        guard let stored = entries[key]?.decoded else { return nil }
+        return stored as? Value
+    }
+
+    /// Remember what an entry's body decoded to, and release the bytes.
+    ///
+    /// The body has exactly one reader — the decode a 304 would otherwise
+    /// perform — so once its answer is here the JSON is dead weight, and it is
+    /// the *large* half: a run list at `per_page=30` is a couple of hundred
+    /// kilobytes of GitHub's verbose run objects, against roughly a tenth of
+    /// that once decoded into the handful of fields `WorkflowRun` keeps. So
+    /// this trades nothing for both halves of the cost — no re-decode, and a
+    /// materially smaller resident store.
+    mutating func memoise<Value: Sendable>(_ value: Value, for key: String) {
+        guard entries[key] != nil else { return }
+        entries[key]?.decoded = value
+        entries[key]?.body = Data()
     }
 
     /// Remember a 200 response.
@@ -91,7 +141,10 @@ struct ETagStore: Sendable {
             entries[key] = nil
             return
         }
-        entries[key] = Entry(etag: etag, body: body, refreshedAt: Date())
+        // `decoded: nil` spelled out rather than left to the memberwise
+        // default: a fresh body invalidates the previous decode, and this is
+        // the one place that could pair the two by omission.
+        entries[key] = Entry(etag: etag, body: body, refreshedAt: Date(), decoded: nil)
         evictOverflow()
     }
 

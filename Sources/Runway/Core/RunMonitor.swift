@@ -116,6 +116,26 @@ public actor RunMonitor {
     private var isSuspended = false
     private var isLowPower = false
 
+    /// True between the first and last `await` of a `pollOnce()`.
+    ///
+    /// An actor serialises *statements*, not calls: `pollOnce()` is awaits
+    /// nearly all the way down, and every one of them is a point where a second
+    /// call gets to start. There are four ways in beyond the loop — the menu's
+    /// Refresh Now, waking from sleep, changing the host, changing the token —
+    /// and three of them fire alongside something that was already going to
+    /// poll. Waking is the clearest: `setSuspended(false)` releases the loop
+    /// from its two-minute cadence at the same instant the delegate calls
+    /// `refreshNow()`, so the machine came back from a lid close and asked
+    /// GitHub about every watched repository twice, in parallel, on a budget
+    /// this whole file exists to protect. The second poll costs a full round of
+    /// requests, a full round of decodes, and a rate limit it may or may not
+    /// have — and it can only ever produce the answer the first one is already
+    /// on its way back with.
+    ///
+    /// Coalesced rather than queued: a poll takes seconds, so a refresh that
+    /// arrives mid-flight is answered by the flight already in progress.
+    private var isPollInFlight = false
+
     private var continuations: [UUID: AsyncStream<MonitorState>.Continuation] = [:]
 
     // MARK: Configuration
@@ -436,6 +456,13 @@ public actor RunMonitor {
     }
 
     private func pollOnce() async {
+        // One poll at a time — see `isPollInFlight`. Set and cleared without an
+        // `await` between them and the `guard`, so no second caller can slip
+        // past on the strength of a stale read.
+        guard !isPollInFlight else { return }
+        isPollInFlight = true
+        defer { isPollInFlight = false }
+
         // Which configuration this poll belongs to. Every `await` below hands
         // the actor to whoever else is waiting on it, and `configure(_:)` is
         // one call away from a click in Settings.

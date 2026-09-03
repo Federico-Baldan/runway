@@ -112,6 +112,38 @@ enum RateBudgetVerify {
         assert("a token change clears everything — ETags are per-token", store.count == 0)
 
         print()
+        print("── the decode memo ──")
+        // A 304 says the bytes are unchanged, which means the value they parse
+        // to is unchanged as well. Re-running JSONDecoder over the cached body
+        // to rebuild it was the single largest recurring CPU cost in the app:
+        // twenty run lists, thirty runs deep, every five seconds, for an answer
+        // already known. See ETagStore.Entry.decoded.
+        var memo = ETagStore()
+        memo.store(key: "runs:acme/web", etag: "W/\"abc\"", body: Data("[1,2,3]".utf8))
+        let parsed = [1, 2, 3]
+        memo.memoise(parsed, for: "runs:acme/web")
+        let recalled: [Int]? = memo.decoded(for: "runs:acme/web")
+        assert("a 304 resolves against the memo rather than re-parsing", recalled == parsed)
+        assert("and the raw JSON is released once it has been decoded — it has "
+               + "no other reader, and it is the larger half",
+               memo.body(for: "runs:acme/web") == nil)
+        assert("the ETag survives, so the request stays conditional",
+               memo.etag(for: "runs:acme/web") == "W/\"abc\"")
+
+        // A wrong-typed recall must decline rather than hand back somebody
+        // else's payload. One cache key only ever names one endpoint, so this
+        // cannot happen in the app — but "cannot" is what assertions are for.
+        let mistyped: [String]? = memo.decoded(for: "runs:acme/web")
+        assert("a memo of the wrong type is declined, not force-cast", mistyped == nil)
+
+        // A fresh 200 body invalidates the previous decode. Pairing new bytes
+        // with an old memo would freeze the island on last week's runs.
+        memo.store(key: "runs:acme/web", etag: "W/\"def\"", body: Data("[4]".utf8))
+        let afterRestore: [Int]? = memo.decoded(for: "runs:acme/web")
+        assert("a new body clears the memo it invalidates", afterRestore == nil)
+        assert("and the new bytes are there to decode", memo.body(for: "runs:acme/web") != nil)
+
+        print()
         if failures == 0 {
             print("RESULT: PASS — the poll fits the budget and the cache accounting is sound")
         } else {

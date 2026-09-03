@@ -49,6 +49,14 @@ public final class StatusItemController {
     /// mood nor the count — so without this the row keeps the title it was
     /// built with before anybody knew where it was deploying.
     private var lastEnvironments: String?
+    /// And whether there is a token at all, which decides the icon outright.
+    ///
+    /// `redraw()` draws the orange warning glyph when the keychain is empty,
+    /// but that fact was not in the gate below — so storing a token in Settings
+    /// left the warning up until the mood, the run count or the error text
+    /// happened to move on their own. On an account with nothing building that
+    /// is a long wait for something the user has just fixed.
+    private var lastHasToken: Bool?
 
     /// Whether the menu is currently on screen, and whether a redraw arrived
     /// while it was.
@@ -345,11 +353,14 @@ public final class StatusItemController {
         let environments = model.relevantRuns
             .compactMap(\.deployTarget?.name)
             .joined(separator: ",")
+        let hasToken = TokenCache.shared.token() != nil
         guard mood != lastMood || count != lastCount || update != lastUpdate
                 || approvals != lastApprovals || blocked != lastBlocked
                 || repositories != lastRepositoryCount
-                || error != lastError || environments != lastEnvironments else { return }
+                || error != lastError || environments != lastEnvironments
+                || hasToken != lastHasToken else { return }
         lastEnvironments = environments
+        lastHasToken = hasToken
         lastUpdate = update
         lastMood = mood
         lastCount = count
@@ -359,7 +370,7 @@ public final class StatusItemController {
         lastError = error
 
         if let button = statusItem.button {
-            button.image = Self.symbol(for: mood, hasToken: TokenCache.shared.token() != nil)
+            button.image = Self.symbol(for: mood, hasToken: hasToken)
             button.title = count > 1 ? " \(count)" : ""
             button.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
         }
