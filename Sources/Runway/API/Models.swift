@@ -88,6 +88,46 @@ public enum RunStatus: String, Codable, Sendable, CaseIterable {
         }
     }
 
+    /// The `status` / `conclusion` pair GitHub would have sent for this value.
+    ///
+    /// The inverse of `resolve(status:conclusion:)`, and the reason the encoders
+    /// below are not one line shorter. `Codable` here has to be symmetric or it
+    /// is a trap: every decoder in this file reads GitHub's two-field
+    /// vocabulary, so an encoder writing `rawValue` under `status` produced JSON
+    /// its own decoder read back as `.unknown` — a round trip that quietly
+    /// forgot how every finished run ended. Nothing encodes a run today; the
+    /// point is that nothing can start to and be wrong about all of them.
+    ///
+    /// `.rejected` is the one case with no wire form of its own, because it has
+    /// none at GitHub either: it is a stamp `stampRejection()` applies on top of
+    /// a payload that says `failure`, from a review history that arrives in a
+    /// different response and is not part of what any of these encoders write.
+    /// So it encodes as the `failure` GitHub actually sent — losing exactly the
+    /// stamp that was never in the payload to begin with, rather than losing the
+    /// conclusion underneath it as well.
+    public var wireValues: (status: String, conclusion: String?) {
+        switch self {
+        case .queued: return ("queued", nil)
+        case .inProgress: return ("in_progress", nil)
+        case .waiting: return ("waiting", nil)
+        case .requested: return ("requested", nil)
+        case .pending: return ("pending", nil)
+        case .success: return ("completed", "success")
+        case .failure, .rejected: return ("completed", "failure")
+        case .cancelled: return ("completed", "cancelled")
+        case .skipped: return ("completed", "skipped")
+        case .neutral: return ("completed", "neutral")
+        case .timedOut: return ("completed", "timed_out")
+        case .actionRequired: return ("completed", "action_required")
+        case .startupFailure: return ("completed", "startup_failure")
+        case .stale: return ("completed", "stale")
+        // A pair `resolve` did not recognise. `completed` with no conclusion is
+        // the shape it answers `.unknown` for, so this is the one value that
+        // round-trips by saying nothing.
+        case .unknown: return ("completed", nil)
+        }
+    }
+
     /// Active means "this run is going somewhere" — poll fast.
     public var isActive: Bool {
         switch self {
@@ -241,7 +281,9 @@ public struct Step: Codable, Sendable, Hashable, Identifiable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(name, forKey: .name)
         try container.encode(number, forKey: .number)
-        try container.encode(status.rawValue, forKey: .status)
+        let wire = status.wireValues
+        try container.encode(wire.status, forKey: .status)
+        try container.encodeIfPresent(wire.conclusion, forKey: .conclusion)
         try container.encodeIfPresent(startedAt, forKey: .startedAt)
         try container.encodeIfPresent(completedAt, forKey: .completedAt)
     }
@@ -305,7 +347,9 @@ public struct Job: Codable, Sendable, Hashable, Identifiable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
         try container.encode(name, forKey: .name)
-        try container.encode(status.rawValue, forKey: .status)
+        let wire = status.wireValues
+        try container.encode(wire.status, forKey: .status)
+        try container.encodeIfPresent(wire.conclusion, forKey: .conclusion)
         try container.encodeIfPresent(startedAt, forKey: .startedAt)
         try container.encodeIfPresent(completedAt, forKey: .completedAt)
         try container.encodeIfPresent(htmlURL, forKey: .htmlURL)
@@ -500,7 +544,9 @@ public struct WorkflowRun: Codable, Sendable, Hashable, Identifiable {
         try container.encodeIfPresent(headBranch, forKey: .headBranch)
         try container.encodeIfPresent(headSHA, forKey: .headSHA)
         try container.encodeIfPresent(event, forKey: .event)
-        try container.encode(status.rawValue, forKey: .status)
+        let wire = status.wireValues
+        try container.encode(wire.status, forKey: .status)
+        try container.encodeIfPresent(wire.conclusion, forKey: .conclusion)
         try container.encodeIfPresent(htmlURL, forKey: .htmlURL)
         try container.encodeIfPresent(createdAt, forKey: .createdAt)
         try container.encodeIfPresent(updatedAt, forKey: .updatedAt)

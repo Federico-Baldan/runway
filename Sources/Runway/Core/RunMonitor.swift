@@ -374,6 +374,19 @@ public actor RunMonitor {
         emitIfChanged(force: true)
     }
 
+    /// Point the monitor at a different GitHub instance.
+    ///
+    /// A full reset, not a reconfiguration. Everything the monitor is holding —
+    /// run ids, repository names, job detail, review history, the discovery
+    /// cache, the ETags underneath all of it — belongs to the server that
+    /// issued it, and none of it means anything on another one. Which is the
+    /// same argument `resetForNewToken` makes about a token, only more so, so
+    /// this is that plus the URL.
+    public func setBaseURL(_ url: URL) async {
+        await client.setBaseURL(url)
+        await resetForNewToken()
+    }
+
     public func refreshNow() async {
         await pollOnce()
     }

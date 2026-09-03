@@ -119,9 +119,14 @@ public final class Preferences {
             ?? EnvironmentDefault.string(EnvironmentDefault.repoScope).flatMap(RepoScope.init(rawValue:))
             ?? .recent
 
-        self.repoLimit = (defaults.object(forKey: Key.repoLimit) as? Int)
+        // Clamped to the range the Stepper in Settings offers, because the
+        // environment is not the Stepper: `RUNWAY_REPO_LIMIT=0` resolved to
+        // "poll no repositories at all", and an island that never appears
+        // because it was told to watch nothing is indistinguishable from one
+        // that is broken.
+        self.repoLimit = min(max((defaults.object(forKey: Key.repoLimit) as? Int)
             ?? EnvironmentDefault.int(EnvironmentDefault.repoLimit)
-            ?? 20
+            ?? 20, 1), 100)
 
         self.organizations = Set(
             defaults.stringArray(forKey: Key.organizations)
@@ -186,7 +191,7 @@ public final class Preferences {
         case EnvironmentDefault.repositories:
             if let value = EnvironmentDefault.list(name) { explicitRepositories = value }
         case EnvironmentDefault.repoLimit:
-            if let value = EnvironmentDefault.int(name) { repoLimit = value }
+            if let value = EnvironmentDefault.int(name) { repoLimit = min(max(value, 1), 100) }
         case EnvironmentDefault.organizations:
             if let value = EnvironmentDefault.list(name) { organizations = Set(value) }
         case EnvironmentDefault.host:

@@ -102,6 +102,7 @@ spikes: spikes-offline
 
 spikes-offline:
 	@echo "── status ──"    && $(MAKE) -s spike-run SPIKE=StatusFusionVerify   SRC="$(API)/Models.swift $(API)/Approvals.swift $(API)/DeployTarget.swift"
+	@echo "── codable ──"   && $(MAKE) -s spike-run SPIKE=CodableVerify        SRC="$(API)/Models.swift $(API)/Approvals.swift $(API)/DeployTarget.swift"
 	@echo "── approvals ──" && $(MAKE) -s spike-run SPIKE=ApprovalVerify      SRC="$(API)/Models.swift $(API)/Approvals.swift $(API)/DeployTarget.swift"
 	@echo "── rejections ──" && $(MAKE) -s spike-run SPIKE=RejectionVerify    SRC="$(API)/Models.swift $(API)/Approvals.swift $(API)/DeployTarget.swift"
 	@echo "── environments ──" && $(MAKE) -s spike-run SPIKE=EnvironmentVerify  SRC="$(API)/Models.swift $(API)/Approvals.swift $(API)/DeployTarget.swift"

@@ -108,6 +108,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastIdleMark: Bool?
     private var lastIdleMarkPosition: IdleMarkPosition?
     private var lastConfigurationSignature: String?
+    private var lastHost: String?
+    /// Debounce for the host field — see `hostChanged`.
+    private var hostChangeTask: Task<Void, Never>?
 
     private let verifyOnly: Bool
     private let snapshotPath: String?
@@ -224,6 +227,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Point the monitor at a different GitHub instance.
+    ///
+    /// Debounced, because the Host field in Settings writes to `UserDefaults` on
+    /// every keystroke and a host change is a full reset with a poll behind it:
+    /// typing `ghe.example.com` unthrottled is eighteen resets and eighteen
+    /// round trips to hosts that mostly do not exist. It waits for the typing to
+    /// stop instead.
+    ///
+    /// Not folded into `configurationSignature`: that one describes what to
+    /// watch, and is applied immediately and cheaply. This throws every cache
+    /// away.
+    private func hostChanged(to host: String) {
+        hostChangeTask?.cancel()
+        hostChangeTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1.2))
+            guard !Task.isCancelled, let self else { return }
+            let monitor = self.monitor
+            let url = GitHubClient.baseURL(for: host)
+            Task.detached {
+                await monitor.setBaseURL(url)
+                await monitor.refreshNow()
+            }
+        }
+    }
+
     /// Force an immediate poll — used by "Refresh Now".
     private func refreshNow() {
         let monitor = self.monitor
@@ -241,6 +269,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Push preference changes into the parts of the app that read them.
     private func observePreferences() {
+        lastHost = Preferences.shared.host
         lastScreenPreference = Preferences.shared.screenPreference
         lastIdleMark = Preferences.shared.idleMark
         lastIdleMarkPosition = Preferences.shared.idleMarkPosition
@@ -264,6 +293,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Apply whichever preferences actually moved.
     private func applyChangedPreferences() {
+        let host = Preferences.shared.host
+        if host != lastHost {
+            lastHost = host
+            hostChanged(to: host)
+        }
+
         let screen = Preferences.shared.screenPreference
         if screen != lastScreenPreference {
             lastScreenPreference = screen
@@ -310,6 +345,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         streamTask?.cancel()
         demoTask?.cancel()
+        hostChangeTask?.cancel()
         for observer in defaultCenterObservers {
             NotificationCenter.default.removeObserver(observer)
         }

@@ -115,6 +115,13 @@ public final class IslandModel {
     public func apply(_ newState: MonitorState) {
         state = newState
         stateSignature = newState.signature
+        // Every linger window below is measured against this, and the only other
+        // things that move it are the ticker — which stops whenever nothing is
+        // on screen or the display is asleep — and waking up. So a poll arriving
+        // after a quiet spell used to derive what is visible from whatever
+        // o'clock it was when the ticker last stopped, and only correct itself a
+        // tick later.
+        now = Date()
         Haptics.runsChanged(newState.runs)
         ApprovalNotifier.runsChanged(newState.runs)
         recomputeDerivedState()

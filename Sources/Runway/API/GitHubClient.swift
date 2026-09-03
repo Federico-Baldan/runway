@@ -157,7 +157,8 @@ public actor GitHubClient {
     /// Public GitHub. Enterprise Server installs use `https://HOST/api/v3`.
     public static let defaultBaseURL = URL(string: "https://api.github.com")!
 
-    private let baseURL: URL
+    /// Mutable, because the GitHub instance is a setting. See `setBaseURL`.
+    private var baseURL: URL
     private let session: URLSession
     private let tokenProvider: @Sendable () -> String?
 
@@ -226,7 +227,13 @@ public actor GitHubClient {
         let base = baseURL(for: host)
         guard let hostName = base.host else { return "https://github.com" }
         if hostName == "api.github.com" { return "https://github.com" }
-        return "https://" + hostName
+        // The port comes along. An Enterprise Server reachable on anything but
+        // 443 would otherwise have "Open GitHub Token Settings" open a host that
+        // is not listening — and the API calls, which keep the port, would go on
+        // working, so the one broken thing is the button that explains how to
+        // fix the token.
+        let port = base.port.map { ":\($0)" } ?? ""
+        return "https://" + hostName + port
     }
 
     // MARK: - Rate limit
@@ -245,6 +252,23 @@ public actor GitHubClient {
     public func invalidateCache() {
         etags.invalidate()
         ssoNotice = nil
+    }
+
+    /// Point this client at a different GitHub instance.
+    ///
+    /// The host is a setting, and every cached ETag, every rate-limit reading
+    /// and the SSO notice describe the server that issued them — so moving is
+    /// not a matter of swapping a URL and carrying on. The rate limit is reset
+    /// rather than left stale because the numbers are per-instance and the
+    /// monitor reads `isTight` off them to decide how often to poll: an
+    /// Enterprise Server's budget arrives with the first response, and until it
+    /// does, a public-GitHub reading of "40 left" would have the poll conserving
+    /// against a limit that does not apply to it.
+    public func setBaseURL(_ url: URL) {
+        guard url != baseURL else { return }
+        baseURL = url
+        invalidateCache()
+        rateLimit = RateLimit()
     }
 
     // MARK: - Account

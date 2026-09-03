@@ -85,7 +85,14 @@ public final class NotchPanelController {
     }
 
     private var currentPlacement: NotchGeometry.Placement?
+    /// Notification tokens, kept per centre.
+    ///
+    /// A token only unregisters from the centre that issued it, so one shared
+    /// array made `invalidate()` half a no-op: the workspace observer below was
+    /// handed to `NotificationCenter.default`, which had never heard of it, and
+    /// stayed registered for the life of the process.
     private var observers: [NSObjectProtocol] = []
+    private var workspaceObservers: [NSObjectProtocol] = []
 
     /// Called after the hover expansion changes.
     ///
@@ -137,12 +144,16 @@ public final class NotchPanelController {
         observeScreenChanges()
     }
 
-    /// Drop the notification observers.
+    /// Drop the notification observers, each from the centre that issued it.
     public func invalidate() {
         for observer in observers {
             NotificationCenter.default.removeObserver(observer)
         }
+        for observer in workspaceObservers {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+        }
         observers.removeAll()
+        workspaceObservers.removeAll()
     }
 
     /// Corner treatment differs under a cutout, so rebuild when it changes.
@@ -312,7 +323,7 @@ public final class NotchPanelController {
         })
 
         // A space switch can leave a stationary panel stranded on some setups.
-        observers.append(NSWorkspace.shared.notificationCenter.addObserver(
+        workspaceObservers.append(NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.activeSpaceDidChangeNotification,
             object: nil,
             queue: .main
