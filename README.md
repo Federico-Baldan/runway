@@ -295,11 +295,53 @@ deploys waiting on my approval through anyway"**, or
 `RUNWAY_APPROVALS_FROM_OTHERS=1`. It is off unless you ask for it, and it has no
 effect on "Everyone's runs", where nothing was being hidden to begin with.
 
+### A deploy you rejected is not a failure
+
+GitHub disagrees. Turn down a deployment as a required reviewer and the run is
+reported as `conclusion: "failure"` — the same field, the same value, as a
+build that fell over — so Runway drew a red cross at the person who had just
+clicked *Reject* thirty seconds earlier, about their own decision.
+
+The truth is one endpoint away. `/actions/runs/{id}/approvals` records the same
+event as `state: "rejected"`, with the reviewer and whatever they typed in the
+box, and GitHub lists it under the **Actions: Read** permission Runway already
+has. So a run whose gate was turned down is drawn as its own state: a **grey
+hollow cross**, not a red disc, settled next to *cancelled* and *skipped* where
+finished-and-nobody's-problem belongs. Expanded, the row says who:
+
+```
+acme/infra #71   production      @you rejected the deploy to production — "not on a Friday"
+```
+
+It costs one request, once, per run — never per poll. Asked only about a run
+that is red **and** carries the shape a rejection leaves behind: a job that
+failed with no steps under it at all, because nothing in it ever ran. Anything
+that failed with steps behind it broke for its own reasons and stays red, which
+matters more than it sounds: the endpoint is keyed on the run id rather than the
+attempt, so a deploy rejected on attempt 1 and re-run into a real Terraform
+failure on attempt 2 still answers `rejected`. `spike/RejectionVerify.swift`
+pins that case and every other shape that must not be relabelled.
+
+### Taking a run off the island
+
+Hover any run and click the **×** on the right. It goes away and stays away
+across relaunches.
+
+Local, and only local: nothing is sent to GitHub, nothing is deleted there, and
+the token never needed write access to do it — the same reason Runway shows you
+an approval and sends you to GitHub to grant it. A dismissal is keyed to the run
+*attempt*, so re-running something you hid brings the new attempt back, which is
+usually what you want: the thing you dismissed was a result, and a re-run is a
+different result. Each one is forgotten by itself after a fortnight, and
+**Settings → Where to show the island → "Show them again"** brings back the lot.
+
 ### What it costs
 
 Nothing on a normal poll. The pending-deployments request is only ever sent for
 a run that has already said it is waiting — see `RunMonitor.shouldFetchApprovals`
-— so a repository where nothing is blocked never pays for it.
+— so a repository where nothing is blocked never pays for it. The review-history
+request is rarer still, and is cached for the life of the run: a finished run's
+reviews cannot change, so it is asked once or not at all.
 
 ## Prod, staging or test
 
