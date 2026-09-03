@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 // MARK: - Palette
@@ -201,7 +202,7 @@ struct StatusGlyph: View {
     /// a run can say `in_progress` while one of its jobs waits on a reviewer.
     var blocked: Bool = false
     /// True while the display is asleep, which stops both repeating animations
-    /// below. See `ActivityRing.sweep` for why that matters.
+    /// below. See `ActivityRing.isStill` for why that matters.
     var isSuspended: Bool = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -390,11 +391,10 @@ struct ActivityRing: View {
     var progress: Double? = nil
     var size: CGFloat
     var isMoving: Bool = true
-    /// True while the display is asleep. See `sweep`.
+    /// True while the display is asleep. See `isStill`.
     var isSuspended: Bool = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var spin = false
 
     private var lineWidth: CGFloat { max(size * 0.13, 1.3) }
 
@@ -412,20 +412,33 @@ struct ActivityRing: View {
                     .animation(.spring(duration: 0.55, bounce: 0.12), value: progress)
             }
 
-            comet
-                .rotationEffect(.degrees(spin ? 270 : -90))
-                .animation(sweep, value: spin)
-        }
-        .onAppear { spin = !reduceMotion && !isSuspended }
-        // Stopped rather than slowed when the screen goes dark. This is a
-        // `repeatForever`, which holds the display link open for as long as the
-        // view lives — and a run that is still building when the lid closes
-        // keeps one open behind it indefinitely. The island's other recurring
-        // costs (the elapsed ticker, the idle mark's beat loop, the poll
-        // cadence) all already stand down on the same signal; this was the one
-        // that did not.
-        .onChange(of: isSuspended) { _, suspended in
-            spin = suspended ? false : !reduceMotion
+            // The head's angle is READ OFF THE CLOCK rather than animated
+            // towards, and that is the whole of the fix for a sweep that
+            // stuttered and then stopped.
+            //
+            // It used to be a `repeatForever` bound to a `@State` Bool flipped
+            // once in `onAppear`, which makes the motion a one-shot latch.
+            // Core Animation owns the turn from then on, and the moment it
+            // loses that animation — the panel ordered out and back in, a
+            // space switch, the layer re-established behind a resize — nothing
+            // re-arms it: `spin` is already true, so no `onChange` fires and
+            // no `onAppear` runs a second time. What is left on screen is the
+            // frame the ring happened to be on, a still photograph of a
+            // spinner sitting under a UI that carries on updating around it.
+            // Reduce Motion had the same hole in the other direction, and
+            // `IdleMark` had already been fixed for exactly that.
+            //
+            // A schedule cannot get into that state. The angle is a function
+            // of the date it is handed, so a dropped frame stays a dropped
+            // frame instead of becoming a phase error, there is no restart to
+            // interrupt, and the turn wraps at 360° onto itself with no seam.
+            // `paused:` is what stands the display link down — the same signal
+            // as before, now covering Reduce Motion live rather than only at
+            // launch. Reading a shared clock also puts every ring on screen in
+            // phase, where each used to start from its own `onAppear`.
+            TimelineView(.animation(paused: isStill)) { context in
+                comet.rotationEffect(.degrees(Self.sweepAngle(at: context.date)))
+            }
         }
     }
 
@@ -433,10 +446,10 @@ struct ActivityRing: View {
     ///
     /// Its LENGTH says whether work is happening — a long tail for a running
     /// job, a bare stub for one still queued — while its speed stays fixed.
-    /// Varying the duration instead looked better and did not work: the
-    /// animation is bound to `spin`, which only ever changes once, so a ring
-    /// that appeared while the job was queued kept the slow sweep for the rest
-    /// of the run.
+    /// Varying the duration instead looked better and did not work, and off a
+    /// clock it cannot work at all: the phase is `elapsed / period`, so
+    /// changing the period puts the head somewhere else on the circle in the
+    /// same frame, and the sweep jumps every time a job starts running.
     ///
     /// The wake is an `AngularGradient` rather than a flat arc because at nine
     /// points a bare arc has no direction to it: it is a dash that jitters, and
@@ -484,11 +497,24 @@ struct ActivityRing: View {
 
     private var headOpacity: Double { isMoving ? 1 : 0.7 }
 
-    /// A full turn, from -90° to 270°.
-    private var sweep: Animation? {
-        guard !reduceMotion, !isSuspended else { return nil }
-        return .linear(duration: 1.05).repeatForever(autoreverses: false)
+    /// Seconds for one full turn.
+    private static let period: TimeInterval = 1.05
+
+    /// Where the head is at a given instant, from 12 o'clock, clockwise.
+    ///
+    /// Modulo one turn rather than an angle that grows forever: the wrap is
+    /// invisible because 360° is where it started, and a `Double` that has
+    /// been counting degrees since the reference date loses precision it does
+    /// not need to lose.
+    private static func sweepAngle(at date: Date) -> Double {
+        let turns = date.timeIntervalSinceReferenceDate / period
+        return -90 + 360 * (turns - turns.rounded(.down))
     }
+
+    /// Nothing to turn for: a dark screen, or somebody who asked for less
+    /// motion. Pausing the schedule is what stops the wakeups — the cost the
+    /// island stands every other repeating animation down to avoid.
+    private var isStill: Bool { reduceMotion || isSuspended }
 }
 
 // MARK: - Chips
