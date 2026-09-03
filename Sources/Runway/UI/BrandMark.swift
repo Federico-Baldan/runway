@@ -67,7 +67,7 @@ enum BrandMark {
             // image and gets clipped to a flat edge.
             let shell = notchPath(in: rect.insetBy(dx: stroke / 2, dy: stroke / 2))
             shell.lineWidth = stroke
-            shell.lineJoin = .round
+            shell.lineJoinStyle = .round
             // A template image keeps its alpha and macOS tints what is left, so
             // the shell can sit back from the light the same way it does in the
             // island — no second asset, and it works on a light bar too.
