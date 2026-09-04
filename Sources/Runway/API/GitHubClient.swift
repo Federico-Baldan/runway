@@ -382,7 +382,7 @@ public actor GitHubClient {
             var result: [Repository] = []
             // Serially, per GitHub's own guidance: concurrent requests from one
             // account trip the secondary rate limit long before the primary one.
-            for org in organizations.sorted() {
+            for org in Self.distinctOrganizations(organizations) {
                 let escaped = org.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? org
                 let page: [Repository] = try await get(
                     path: "/orgs/\(escaped)/repos",
@@ -398,6 +398,24 @@ public actor GitHubClient {
             }
             return Array(sortedByPush(result).prefix(limit))
         }
+    }
+
+    /// The organizations to actually ask about, one request per organization.
+    ///
+    /// A `Set` de-duplicates by exact string and GitHub does not: `Acme` and
+    /// `acme` name one organization there and were two entries here, so the
+    /// discovery pass asked twice and paid twice, every five minutes, forever.
+    /// The repositories that came back collapsed again in
+    /// `RunMonitor.watchList`, which folds case — so the duplicate never
+    /// reached the island, and nothing but the request count showed it.
+    ///
+    /// Only reachable from `RUNWAY_ORGS`, which is taken verbatim; the picker
+    /// now replaces rather than adds. That is the same belt-and-braces split
+    /// the repository list already has, and for the same reason: the
+    /// environment is not going to start de-duplicating itself.
+    static func distinctOrganizations(_ organizations: Set<String>) -> [String] {
+        var seen = Set<String>()
+        return organizations.sorted().filter { seen.insert($0.lowercased()).inserted }
     }
 
     private func userRepositories(affiliation: String, limit: Int) async throws -> [Repository] {

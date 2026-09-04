@@ -176,6 +176,21 @@ enum RequestGateVerify {
                ).first?.hasWorkflows == false)
 
         print()
+        print("── organization discovery: one organization, one request ──")
+        // `.organizations` costs one request per entry, every discovery pass.
+        // A `Set` de-duplicates by exact string; GitHub does not.
+        assert("two spellings of one organization are asked about once",
+               GitHubClient.distinctOrganizations(["Acme", "acme"]).count == 1)
+        assert("and the survivor is the one that sorts first, deterministically",
+               GitHubClient.distinctOrganizations(["acme", "Acme"])
+                   == GitHubClient.distinctOrganizations(["Acme", "acme"]))
+        assert("genuinely different organizations all survive",
+               GitHubClient.distinctOrganizations(["acme", "globex", "initech"]).count == 3)
+        assert("and the order is stable, so the ETag keys are too",
+               GitHubClient.distinctOrganizations(["globex", "acme"]) == ["acme", "globex"])
+        assert("nothing in, nothing out", GitHubClient.distinctOrganizations([]).isEmpty)
+
+        print()
         if failures == 0 {
             print("RESULT: PASS — a poll spends only what the budget says it does")
         } else {

@@ -491,11 +491,27 @@ struct SettingsView: View {
                     }
                 } else {
                     ForEach(organizations) { organization in
+                        // Case-insensitively, because GitHub is and
+                        // `RUNWAY_ORGS` is taken verbatim. An organization
+                        // seeded as `Acme` while the API calls it `acme` was
+                        // being watched and drawn unchecked, and ticking the box
+                        // added the second spelling rather than replacing the
+                        // first — two entries for one organization, and a
+                        // request per discovery pass for the privilege.
+                        // Removing both before inserting normalises to whatever
+                        // GitHub itself calls it.
                         Toggle(isOn: Binding(
-                            get: { preferences.organizations.contains(organization.login) },
+                            get: {
+                                preferences.organizations.contains {
+                                    $0.caseInsensitiveCompare(organization.login) == .orderedSame
+                                }
+                            },
                             set: { on in
-                                if on { preferences.organizations.insert(organization.login) }
-                                else { preferences.organizations.remove(organization.login) }
+                                var next = preferences.organizations.filter {
+                                    $0.caseInsensitiveCompare(organization.login) != .orderedSame
+                                }
+                                if on { next.insert(organization.login) }
+                                preferences.organizations = next
                             }
                         )) {
                             Text(organization.login)
