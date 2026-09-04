@@ -60,9 +60,23 @@ enum SchemaVerify {
     /// session owns a connection pool worth reusing across five requests.
     static let session = URLSession(configuration: .ephemeral)
 
+    /// A body, and only when GitHub actually sent one. A rate-limit response
+    /// carries a JSON error that would otherwise be handed to the decoder and
+    /// reported as a schema failure, which is the opposite of true.
     static func get(_ path: String) -> Data? {
-        guard let url = URL(string: "https://api.github.com" + path) else { return nil }
+        let outcome = probe(path)
+        return outcome.status == 200 ? outcome.body : nil
+    }
+
+    /// Status, body and ETag, for the checks that care about the envelope
+    /// rather than the payload.
+    static func probe(_ path: String, ifNoneMatch: String? = nil)
+        -> (status: Int, body: Data?, etag: String?, remaining: Int?) {
+        guard let url = URL(string: "https://api.github.com" + path) else {
+            return (0, nil, nil, nil)
+        }
         var request = URLRequest(url: url)
+        if let ifNoneMatch { request.setValue(ifNoneMatch, forHTTPHeaderField: "If-None-Match") }
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         // The version the app pins. If GitHub ever retires it, this is where
         // that shows up first.
@@ -77,28 +91,31 @@ enum SchemaVerify {
             let lock = NSLock()
             var payload: Data?
             var status = 0
+            var etag: String?
+            var remaining: Int?
         }
         let result = Result()
         let done = DispatchSemaphore(value: 0)
         session.dataTask(with: request) { data, response, _ in
             result.lock.lock()
-            result.status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            let http = response as? HTTPURLResponse
+            result.status = http?.statusCode ?? 0
             result.payload = data
+            result.etag = http?.value(forHTTPHeaderField: "ETag")
+            result.remaining = http?.value(forHTTPHeaderField: "x-ratelimit-remaining").flatMap(Int.init)
             result.lock.unlock()
             done.signal()
         }.resume()
         _ = done.wait(timeout: .now() + 30)
 
         result.lock.lock()
-        let status = result.status
-        let payload = result.payload
+        let outcome = (result.status, result.payload, result.etag, result.remaining)
         result.lock.unlock()
 
-        guard status == 200 else {
-            print("  skip  \(path) -> HTTP \(status) (rate limit or no network)")
-            return nil
+        if outcome.0 != 200 && outcome.0 != 304 {
+            print("  skip  \(path) -> HTTP \(outcome.0) (rate limit or no network)")
         }
-        return payload
+        return outcome
     }
 
     static func main() {
@@ -178,6 +195,52 @@ enum SchemaVerify {
                 }
             } catch {
                 print("  FAIL  \(repository) #\(runID) jobs did not decode: \(error)")
+                problems += 1
+            }
+        }
+
+        print()
+        print("── the conditional request the whole budget rests on ──")
+        // `ETagStore` calls itself "the single most important piece of
+        // rate-limit engineering in the app", and the reason is one documented
+        // GitHub behaviour: a conditional request that answers 304 does not
+        // count against the primary rate limit. Runway polls up to twenty
+        // repositories every five seconds — 14,400 requests an hour against a
+        // budget of 5,000 — and it only fits because almost none of them is
+        // billed.
+        //
+        // If GitHub ever stopped issuing ETags here, or stopped honouring
+        // If-None-Match, nothing would break. The app would keep working and
+        // quietly burn twenty times the budget until it was throttled, which is
+        // the kind of failure that gets diagnosed as "GitHub is flaky".
+        if let repository = repositories.first {
+            let path = "/repos/\(repository)/actions/runs?per_page=30&exclude_pull_requests=true"
+            let first = probe(path)
+            if first.status == 200, let etag = first.etag {
+                print("  ok    GitHub issues an ETag on the runs endpoint: \(etag.prefix(24))…")
+                let second = probe(path, ifNoneMatch: etag)
+                if second.status == 304 {
+                    print("  ok    and answers 304 to If-None-Match, which is what makes the "
+                          + "poll affordable")
+                } else {
+                    print("  FAIL  re-requesting with If-None-Match answered "
+                          + "\(second.status), not 304 — the cache saves nothing and the "
+                          + "budget arithmetic in docs/polling.md no longer holds")
+                    problems += 1
+                }
+                // Unauthenticated, the exemption does not apply — GitHub is
+                // explicit that it needs the Authorization header. Seeing the
+                // budget move here is the evidence for why `GitHubClient.get`
+                // throws `.noToken` rather than letting an empty token reach
+                // the wire: without one, every 304 is billed.
+                if let before = first.remaining, let after = second.remaining {
+                    print("  note  unauthenticated, that 304 still cost \(before - after) "
+                          + "request(s) — the exemption is authenticated-only, which is why "
+                          + "an empty token must never reach the wire")
+                }
+            } else if first.status == 200 {
+                print("  FAIL  no ETag on the runs endpoint — the conditional cache has "
+                      + "nothing to send and every poll is billed in full")
                 problems += 1
             }
         }
