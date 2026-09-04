@@ -164,6 +164,7 @@ struct IslandView: View {
                 // and blinks. See `IdleMark` for why the island is on screen
                 // at all in this state, and what it costs.
                 IdleMark(
+                    animator: model.idleMarkAnimator,
                     height: 16,
                     isSuspended: model.isSuspended,
                     position: model.idleMarkPosition,
@@ -263,6 +264,7 @@ struct IslandView: View {
                 if model.showsIdleMark {
                     HStack(spacing: 8) {
                         IdleMark(
+                            animator: model.idleMarkAnimator,
                             height: 13,
                             isSuspended: model.isSuspended,
                             isAttentive: true,

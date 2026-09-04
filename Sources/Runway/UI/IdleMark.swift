@@ -148,10 +148,11 @@ final class IdleMarkAnimator {
         max(min(x + amount, 1), -1)
     }
 
-    /// `nonisolated` so the view can hold one in `@State`: a stored-property
-    /// default is evaluated in a synchronous, non-isolated context, and a
-    /// main-actor initialiser cannot be called from one. Nothing here touches
-    /// isolated state — every stored property has a `Sendable` default.
+    /// `nonisolated` so it can be a stored-property default — first in the
+    /// view's `@State`, now in `IslandModel`. Either way the default is
+    /// evaluated in a synchronous, non-isolated context, and a main-actor
+    /// initialiser cannot be called from one. Nothing here touches isolated
+    /// state; every stored property has a `Sendable` default.
     nonisolated init() {}
 
     /// Begin the loop, unless one is already going or motion is not wanted.
@@ -200,16 +201,60 @@ final class IdleMarkAnimator {
         }
     }
 
-    /// Stop and reset. Called when the screen sleeps and when the view leaves.
+    /// Stop and reset. Called when the screen sleeps and when Reduce Motion
+    /// comes on — the two cases where the mark should be *put back*, not just
+    /// held still.
     func stop() {
-        beatTask?.cancel()
-        beatTask = nil
+        pause()
         restLid = 0
         isAsleep = false
         pendingWake = false
         asleepSince = nil
         phaseBeatsLeft = 0
         move(Eye(), .easeOut(duration: 0.11))
+    }
+
+    /// Hold still, remembering everything. The half of `stop` that is not a
+    /// reset.
+    ///
+    /// A mark that has been asleep for two minutes is in the middle of a
+    /// deliberate cycle — which phase, how long it has been under, where the
+    /// gaze settled — and `stop` throws all of that away. That is right for a
+    /// dark screen, and wrong for the view merely being rebuilt underneath it,
+    /// which on a notched Mac happens on every hover. See `retain`/`release`.
+    func pause() {
+        beatTask?.cancel()
+        beatTask = nil
+    }
+
+    /// How many `IdleMark` views are on screen right now.
+    ///
+    /// Normally one, briefly two. The island draws the mark from two mutually
+    /// exclusive branches — the compact rest badge under a cutout, and the
+    /// expanded row — so hovering swaps one for the other, and SwiftUI does not
+    /// promise which of `onAppear` and `onDisappear` runs first. Counting
+    /// rather than assuming means the loop survives the swap in either order.
+    @ObservationIgnored private var mounts = 0
+
+    /// A view arrived.
+    ///
+    /// `starting` is separate from the count on purpose: a view that appears
+    /// while the screen is asleep still has to be counted, or the matching
+    /// `release` takes the tally negative and the next real unmount stops a
+    /// loop that two views are still watching. Count always, start only when
+    /// there is somebody to start for.
+    func retain(reduceMotion: Bool, starting: Bool) {
+        mounts += 1
+        guard starting else { return }
+        start(reduceMotion: reduceMotion)
+    }
+
+    /// A view left. Only the last one out stops the loop, and it *pauses*
+    /// rather than resets: the mark is not going anywhere, its view is.
+    func release() {
+        mounts = max(mounts - 1, 0)
+        guard mounts == 0 else { return }
+        pause()
     }
 
     /// Somebody arrived, or left. Looking back is the whole point of having an
@@ -1402,7 +1447,23 @@ struct IdleMark: View {
     var tint: IdleMarkTint = .white
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var animator = IdleMarkAnimator()
+    /// Handed in rather than owned.
+    ///
+    /// `@State` made the animator the view's property, and on a notched Mac
+    /// this view is destroyed and rebuilt on every hover: the compact rest
+    /// badge and the expanded row are mutually exclusive branches of one `if`,
+    /// so expanding swaps one `IdleMark` for another. A fresh animator each
+    /// time meant the mark's whole sleep cycle — which phase, how long it had
+    /// been under, where the gaze had settled — was thrown away and restarted
+    /// from wide awake. On battery the mark is meant to doze after seventy-five
+    /// seconds of nobody caring; anyone who glanced at the notch oftener than
+    /// that kept it permanently awake, which is the opposite of what the whole
+    /// `PowerSource` apparatus is for.
+    ///
+    /// `IslandModel` owns one instead, for the life of the island. Observation
+    /// still works through a plain property — `@State` is for views that own
+    /// their object's lifetime, and this one no longer does.
+    var animator: IdleMarkAnimator
 
     private var width: CGFloat { (height * BrandGeometry.aspect).rounded() }
     private var eye: CGFloat { (height * BrandGeometry.eyeRatio).rounded() }
@@ -1467,9 +1528,14 @@ struct IdleMark: View {
         .onAppear {
             animator.bias = position.gazeBias
             animator.isAttentive = isAttentive
-            if !isSuspended { animator.start(reduceMotion: reduceMotion) }
+            animator.retain(reduceMotion: reduceMotion, starting: !isSuspended)
         }
-        .onDisappear { animator.stop() }
+        // `release`, not `stop`. The view going away is not the mark going
+        // away — on a notched Mac it is usually the hover swapping one branch
+        // of the island for the other — so the loop is only put down when the
+        // last view holding it leaves, and even then its sleep cycle is kept.
+        // See `IdleMarkAnimator.pause`.
+        .onDisappear { animator.release() }
         .onChange(of: isSuspended) { _, suspended in
             // The screen going dark is the one case worth stopping for: nobody
             // can see a blink through a closed lid, and a failed run can keep

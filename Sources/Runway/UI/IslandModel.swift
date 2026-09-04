@@ -66,6 +66,21 @@ public final class IslandModel {
     /// feature, and `IdleMark` explains why.
     public var showsIdleMark = false
 
+    /// The blinking, glancing part of the resting mark, owned here rather
+    /// than by the view that draws it.
+    ///
+    /// The island draws that mark from two mutually exclusive branches — the
+    /// compact rest badge under a cutout, and the expanded row — so hovering
+    /// destroys one `IdleMark` and builds the other. Held in `@State` the
+    /// animator went with it, and the mark's sleep cycle restarted from wide
+    /// awake on every hover, which on battery is the difference between dozing
+    /// after seventy-five seconds and never dozing at all. Held here it
+    /// outlives the swap; `IdleMarkAnimator.retain`/`release` count the views.
+    /// Internal, not `public`: `IdleMarkAnimator` is internal itself, and a
+    /// public property cannot expose it. Nothing outside the module wants it —
+    /// `IslandView` is the only reader.
+    @ObservationIgnored let idleMarkAnimator = IdleMarkAnimator()
+
     /// Where in the band under the cutout that mark sits. Written by
     /// `NotchPanelController` from the preference, same as `showsIdleMark`.
     public var idleMarkPosition: IdleMarkPosition = .center
