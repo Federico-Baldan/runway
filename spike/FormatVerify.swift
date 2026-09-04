@@ -1,4 +1,5 @@
-// Does the blocked pill's counter survive the cadence it is drawn at?
+// Does the blocked pill's counter survive the cadence it is drawn at — and
+// does that cadence behave at all?
 //
 // `IslandModel.tickSeconds` drops a blocked island to a 15-second tick, on the
 // stated grounds that a run parked on an approval "does not count anything".
@@ -26,7 +27,16 @@ import Foundation
 
 @main
 enum FormatVerify {
-    static func main() {
+    static func run(_ id: Int, _ status: RunStatus,
+                    pending: [PendingDeployment] = []) -> WorkflowRun {
+        WorkflowRun(id: id, runNumber: id, status: status,
+                    createdAt: Date().addingTimeInterval(-60),
+                    updatedAt: Date().addingTimeInterval(-30),
+                    repository: "acme/api", pendingDeployments: pending)
+    }
+
+    @MainActor
+    static func main() async {
         var failures = 0
         func assert(_ label: String, _ condition: Bool) {
             if condition { print("  ok    \(label)") }
@@ -62,8 +72,51 @@ enum FormatVerify {
         assert("and long ones in M:SS",      IslandFormat.duration(84) == "1:24")
 
         print()
+        print("── and the ticker that counter is drawn against ──")
+        // The whole reason `waited` counts in minutes. `IslandModel` runs a
+        // timer only while something is actually moving, and each of these is
+        // a wakeup-per-second the app is choosing not to schedule. None of it
+        // had ever been exercised.
+        func advanced(_ model: IslandModel, over seconds: Double) async -> Bool {
+            let before = model.now
+            try? await Task.sleep(for: .seconds(seconds))
+            return model.now > before
+        }
+
+        let live = IslandModel()
+        live.apply(MonitorState(runs: [run(1, .inProgress)], isPolling: true))
+        assert("a live run puts something on the island", live.relevantRuns.count == 1)
+        assert("and `now` advances — the one-second tick is running",
+               await advanced(live, over: 1.4))
+
+        live.setSuspended(true)
+        assert("a dark screen stops it entirely", !(await advanced(live, over: 1.4)))
+        live.setSuspended(false)
+
+        let idle = IslandModel()
+        idle.apply(MonitorState(runs: [], isPolling: true))
+        // Bound first: `&&` takes its right operand as an autoclosure, and an
+        // autoclosure cannot be async.
+        let idleTicked = await advanced(idle, over: 1.4)
+        assert("nothing on the island, and nothing counting",
+               idle.relevantRuns.isEmpty && !idleTicked)
+
+        let blocked = IslandModel()
+        let gate = PendingDeployment(
+            environment: .init(id: 1, name: "production"),
+            currentUserCanApprove: false,
+            reviewers: [DeploymentReviewer(kind: .user, name: "carol")])
+        blocked.apply(MonitorState(runs: [run(2, .waiting, pending: [gate])], isPolling: true))
+        assert("a run parked on a person is recognised as blocked",
+               blocked.blockedRuns.count == 1)
+        assert("and drops to the fifteen-second cadence — `now` does not move in "
+               + "two seconds, which is the 3,600 wakeups an hour that saves",
+               !(await advanced(blocked, over: 2.0)))
+
+        print()
         print(failures == 0
-              ? "RESULT: PASS — the waiting counter is stable across a tick"
+              ? "RESULT: PASS — the counter is stable across a tick, and the tick "
+                + "only runs when something is counting"
               : "RESULT: FAIL — \(failures)")
         exit(failures == 0 ? 0 : 1)
     }
