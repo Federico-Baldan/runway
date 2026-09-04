@@ -152,6 +152,10 @@ public actor RunMonitor {
     /// arrives mid-flight is answered by the flight already in progress.
     private var isPollInFlight = false
 
+    /// A refresh that arrived while a poll was already running, owed as soon as
+    /// that one finishes. See `refreshNow()`.
+    private var pendingRefresh = false
+
     private var continuations: [UUID: AsyncStream<MonitorState>.Continuation] = [:]
 
     // MARK: Configuration
@@ -442,6 +446,22 @@ public actor RunMonitor {
     }
 
     public func refreshNow() async {
+        // Deferred rather than dropped when one is already running.
+        //
+        // Coalescing onto the flight in progress is right when its answer will
+        // do, and three of the four callers invalidate everything first: a new
+        // token, a new host and a scope change all bump
+        // `configurationGeneration`, which makes the in-flight poll discard its
+        // own results on the way out. Dropping the refresh as well left nothing
+        // to write the new answer, so the island sat on whatever it had until
+        // the loop's next tick — fifteen seconds with nothing building, two
+        // minutes if the screen had just slept, and up to five if a backoff was
+        // in play. Storing a token and watching nothing happen is exactly the
+        // moment somebody concludes the token did not work.
+        guard !isPollInFlight else {
+            pendingRefresh = true
+            return
+        }
         await pollOnce()
     }
 
@@ -455,6 +475,14 @@ public actor RunMonitor {
     private func runLoop() async {
         while !Task.isCancelled {
             await pollOnce()
+            // Pay off a refresh that arrived mid-poll before going back to
+            // sleep. This is the only place that can: `refreshNow` had to stand
+            // down to keep one poll in flight, and the poll it stood down for
+            // may have thrown its own results away.
+            if pendingRefresh, !Task.isCancelled {
+                pendingRefresh = false
+                await pollOnce()
+            }
             let delay = nextInterval()
             do {
                 // The tolerance is what lets macOS coalesce this wakeup with
