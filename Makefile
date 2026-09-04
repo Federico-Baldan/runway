@@ -115,6 +115,7 @@ spikes-offline:
 	@echo "── centering ──" && $(MAKE) -s spike-run SPIKE=CenteringVerify      SRC="Sources/Runway/UI/NotchMath.swift"
 	@echo "── notch ──"     && $(MAKE) -s spike-run SPIKE=NotchPlacementVerify SRC="Sources/Runway/UI/NotchMath.swift"
 	@echo "── sso ──"       && $(MAKE) -s spike-run SPIKE=SSOVerify           SRC="$(API)/GitHubClient.swift $(API)/Models.swift $(API)/Approvals.swift $(API)/DeployTarget.swift $(API)/RunScope.swift $(API)/ETagStore.swift Sources/Runway/Auth/Keychain.swift"
+	@echo "── dates ──"    && $(MAKE) -s spike-run SPIKE=DateVerify        SRC="$(API)/GitHubClient.swift $(API)/Models.swift $(API)/Approvals.swift $(API)/DeployTarget.swift $(API)/RunScope.swift $(API)/ETagStore.swift Sources/Runway/Auth/Keychain.swift"
 
 # Compile one spike against the real sources, then run it.
 spike-run: $(SPIKEOUT)

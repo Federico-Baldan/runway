@@ -752,6 +752,38 @@ enum GitHubDate {
     /// guess. The old order failed a parse on nearly every date it was given.
     static func parse(_ raw: String) -> Date? {
         if let date = plain.date(from: raw) { return date }
-        return fractional.date(from: raw)
+        if let date = fractional.date(from: raw) { return date }
+        // Last resort: drop the fraction and read the rest.
+        //
+        // `withFractionalSeconds` accepts three, six or nine digits — Apple's
+        // documented set — and nothing else. Four, or one, and it returns nil,
+        // which here is not a missing timestamp but a thrown `.decoding`: the
+        // date strategy has no way to say "skip this field", so one unreadable
+        // fraction anywhere in a response fails the decode, fails the poll, and
+        // puts "Could not read GitHub's response" on the island until the shape
+        // stops arriving. That is the entire app dark over sub-second precision
+        // it discards anyway — every window it measures is in whole seconds.
+        //
+        // Only ever reached after both formatters have declined, so the normal
+        // path is unchanged: this costs nothing on the millions of timestamps
+        // that parse first time.
+        guard let whole = strippingFractionalSeconds(raw) else { return nil }
+        return plain.date(from: whole)
+    }
+
+    /// `2026-01-01T12:34:56.1234Z` → `2026-01-01T12:34:56Z`, or `nil` when
+    /// there is no fraction to drop.
+    ///
+    /// The offset has to survive: `withInternetDateTime` requires one, so
+    /// cutting from the dot to the end would turn a date it might have read
+    /// into one it certainly cannot.
+    private static func strippingFractionalSeconds(_ raw: String) -> String? {
+        guard let dot = raw.firstIndex(of: ".") else { return nil }
+        let fraction = raw[raw.index(after: dot)...]
+        // ASCII digits only. A fraction that runs to the end of the string has
+        // no offset behind it, so there is nothing worth handing on.
+        guard let end = fraction.firstIndex(where: { !($0.isASCII && $0.isNumber) })
+        else { return nil }
+        return String(raw[..<dot]) + String(fraction[end...])
     }
 }
