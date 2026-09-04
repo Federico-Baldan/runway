@@ -200,6 +200,44 @@ enum SchemaVerify {
         }
 
         print()
+        print("── how much of a payload this app actually keeps ──")
+        // `ETagStore.memoise` releases the raw JSON once it has been decoded,
+        // on the claim that the decoded value is far smaller. That is a claim
+        // about GitHub's payloads, so it is worth re-measuring rather than
+        // trusting: a run carries a whole `repository` object, a
+        // `head_repository`, a `head_commit` and a wall of `*_url` links, and
+        // Runway decodes none of them.
+        if let repository = repositories.first {
+            let path = "/repos/\(repository)/actions/runs?per_page=30&exclude_pull_requests=true"
+            if let data = get(path),
+               let payload = try? makeDecoder().decode(WorkflowRunsPayload.self, from: data) {
+                // A floor on what the decoded runs cost: every string this app
+                // keeps, plus a machine word for each of the fixed-width
+                // fields. It cannot be exact from in here, but it is the right
+                // order of magnitude and that is the whole point.
+                var kept = 0
+                for run in payload.workflowRuns {
+                    kept += (run.name?.utf8.count ?? 0) + (run.path?.utf8.count ?? 0)
+                    kept += (run.displayTitle?.utf8.count ?? 0) + (run.headBranch?.utf8.count ?? 0)
+                    kept += (run.headSHA?.utf8.count ?? 0) + (run.event?.utf8.count ?? 0)
+                    kept += (run.htmlURL?.utf8.count ?? 0) + run.repository.utf8.count
+                    kept += run.logins.reduce(0) { $0 + $1.utf8.count }
+                    kept += 8 * 6 // id, numbers, three dates, status
+                }
+                let share = Double(kept) / Double(data.count) * 100
+                print(String(format: "  %d runs: %d KB on the wire, roughly %d KB kept (%.1f%%)",
+                             payload.workflowRuns.count, data.count / 1024, kept / 1024, share))
+                if share < 25 {
+                    print("  ok    the decoded value is a small fraction of the body, which is "
+                          + "what makes releasing the body worth doing")
+                } else {
+                    print("  note  the payload has slimmed down — ETagStore.memoise's note "
+                          + "about proportions is out of date")
+                }
+            }
+        }
+
+        print()
         print("── the conditional request the whole budget rests on ──")
         // `ETagStore` calls itself "the single most important piece of
         // rate-limit engineering in the app", and the reason is one documented

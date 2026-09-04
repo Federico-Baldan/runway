@@ -121,12 +121,21 @@ struct ETagStore: Sendable {
     /// Remember what an entry's body decoded to, and release the bytes.
     ///
     /// The body has exactly one reader — the decode a 304 would otherwise
-    /// perform — so once its answer is here the JSON is dead weight, and it is
-    /// the *large* half: a run list at `per_page=30` is a couple of hundred
-    /// kilobytes of GitHub's verbose run objects, against roughly a tenth of
-    /// that once decoded into the handful of fields `WorkflowRun` keeps. So
-    /// this trades nothing for both halves of the cost — no re-decode, and a
-    /// materially smaller resident store.
+    /// perform — so once its answer is here the JSON is dead weight. And it is
+    /// the *large* half by a margin worth measuring rather than guessing at.
+    ///
+    /// Measured against live GitHub, `per_page=30` with `exclude_pull_requests`
+    /// already on: 385 KB for grafana/grafana, 365 KB for Homebrew/brew. Of
+    /// that, the fields `WorkflowRun` actually decodes come to **4.4–4.8%** —
+    /// every run carries a full `repository` object, a `head_repository`, a
+    /// `head_commit`, and a wall of `*_url` links, and this app reads none of
+    /// them. So roughly 366 KB per cached repository was being held to answer a
+    /// question worth 18 KB, and `spike/SchemaVerify.swift` re-measures it.
+    ///
+    /// At the hundred-repository ceiling that is the difference between tens of
+    /// megabytes of JSON resident in a menu bar app and a couple of megabytes
+    /// of decoded runs — which is the outcome `maxAge` and `maxEntries` were
+    /// reaching for and could only bound, never remove.
     mutating func memoise<Value: Sendable>(_ value: Value, for key: String) {
         guard entries[key] != nil else { return }
         entries[key]?.decoded = value
