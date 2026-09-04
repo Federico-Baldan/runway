@@ -12,13 +12,37 @@ public enum NotchGeometry {
     public enum ScreenPreference: String, Sendable, CaseIterable {
         /// The display that owns the menu bar (frame origin `.zero`).
         case primary
-        /// The screen with keyboard focus (`NSScreen.main`).
+        /// The display being worked on right now.
+        ///
+        /// Deliberately *not* `NSScreen.main`. That is the screen of the key
+        /// window, and this process is an accessory that usually has none — and
+        /// when it does have one it is the island's own panel, which makes the
+        /// answer "wherever the island already is" and pins the setting to the
+        /// first screen it ever landed on. `NSScreen.main` is also documented
+        /// wrong for background apps with "Displays have separate Spaces" off:
+        /// it reports the menu-bar screen whatever has focus (FB11506568).
+        /// `activeScreen()` asks the pointer instead.
         case main
         /// The built-in display, i.e. the only one that can actually have a notch.
         case builtIn
         /// The screen with a notch, if any is attached.
         case notched
+        /// One particular display, chosen by hand in Settings.
+        ///
+        /// *Which* one lives in `pinnedDisplayID` rather than in the case, so
+        /// the preference stays a plain string in `UserDefaults`. Without this
+        /// there is no way to say "the external monitor" at all: every other
+        /// case describes a role, and on a MacBook driving a second screen
+        /// every one of them resolves back to the MacBook.
+        case pinned
     }
+
+    /// The display `ScreenPreference.pinned` names, as a `CGDirectDisplayID`.
+    ///
+    /// Pushed in from `Preferences` — see `AppDelegate.applyChangedPreferences`.
+    /// Nil, or an ID that is no longer attached, falls back to the menu-bar
+    /// display: unplugging a monitor must not take the island with it.
+    public static var pinnedDisplayID: CGDirectDisplayID?
 
     public struct Placement: Sendable, Equatable {
         /// Panel frame in screen coordinates.
@@ -69,7 +93,33 @@ public enum NotchGeometry {
 
     /// Height of the band the cutout occupies, 0 on a notchless display.
     static func notchBand(of screen: NSScreen) -> CGFloat {
-        simulateNotch ? simulatedNotchHeight : screen.safeAreaInsets.top
+        if simulateNotch { return simulatedNotchHeight }
+        let inset = screen.safeAreaInsets.top
+        if inset > 0 { return inset }
+        // A menu bar set to hide itself reports a zero top inset even on a
+        // notched panel, which turned a notched Mac into a notchless one for
+        // as long as the bar was hidden. The strips either side of the cutout
+        // are still reported, and their height is the band it occupies.
+        return screen.auxiliaryTopLeftArea?.height ?? 0
+    }
+
+    /// Does this display physically have a cutout?
+    ///
+    /// Ignores `simulateNotch` on purpose: the simulation is about how the
+    /// island is *drawn*, not about which piece of glass is which, and letting
+    /// it through made every attached screen answer to `.builtIn`.
+    static func hasCutout(_ screen: NSScreen) -> Bool {
+        screen.safeAreaInsets.top > 0 || screen.auxiliaryTopLeftArea != nil
+    }
+
+    /// `CGDirectDisplayID` for a screen.
+    ///
+    /// The identity to store, because `NSScreen` objects are replaced wholesale
+    /// on every display reconfiguration — holding one across a lid close means
+    /// holding a screen that no longer exists.
+    public static func displayID(of screen: NSScreen) -> CGDirectDisplayID? {
+        (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)
+            .map { CGDirectDisplayID($0.uint32Value) }
     }
 
     /// Pick the display to render on.
@@ -79,23 +129,50 @@ public enum NotchGeometry {
 
         switch preference {
         case .primary:
-            return screens.first(where: { $0.frame.origin == .zero })
-                ?? NSScreen.main
-                ?? screens.first
+            return primaryScreen()
         case .main:
-            return NSScreen.main ?? screens.first
+            return activeScreen()
         case .builtIn:
-            return screens.first(where: isBuiltIn) ?? NSScreen.main ?? screens.first
+            return screens.first(where: isBuiltIn) ?? primaryScreen()
         case .notched:
-            return screens.first(where: { $0.safeAreaInsets.top > 0 })
-                ?? NSScreen.main
-                ?? screens.first
+            return screens.first(where: hasCutout) ?? primaryScreen()
+        case .pinned:
+            return pinnedDisplayID
+                .flatMap { id in screens.first { displayID(of: $0) == id } }
+                ?? primaryScreen()
         }
+    }
+
+    /// The display that owns the menu bar. Every other choice falls back here,
+    /// because it is the one display that is always attached.
+    public static func primaryScreen() -> NSScreen? {
+        let screens = NSScreen.screens
+        return screens.first(where: { $0.frame.origin == .zero })
+            ?? NSScreen.main
+            ?? screens.first
+    }
+
+    /// The display being worked on right now — the pointer's screen.
+    ///
+    /// The pointer is the one signal that is correct for a menu-bar accessory;
+    /// see `ScreenPreference.main` for why the obvious `NSScreen.main` is not.
+    /// It is still the fallback, for the case where the pointer is somewhere no
+    /// screen claims (it can sit exactly on a shared edge, or off the end of a
+    /// display arrangement while the mouse is being flicked).
+    public static func activeScreen() -> NSScreen? {
+        let screens = NSScreen.screens
+        guard !screens.isEmpty else { return nil }
+        if let index = NotchMath.screenIndex(
+            containing: NSEvent.mouseLocation, in: screens.map(\.frame)
+        ) {
+            return screens[index]
+        }
+        return NSScreen.main ?? primaryScreen()
     }
 
     /// A built-in display reports a notch, or identifies as the Apple panel.
     private static func isBuiltIn(_ screen: NSScreen) -> Bool {
-        if screen.safeAreaInsets.top > 0 { return true }
+        if hasCutout(screen) { return true }
         let name = screen.localizedName.lowercased()
         return name.contains("built-in") || name.contains("liquid retina")
     }

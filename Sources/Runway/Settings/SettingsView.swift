@@ -685,23 +685,18 @@ struct SettingsView: View {
             Text("Where to show the island")
                 .font(.headline)
 
-            ForEach(displayOptions, id: \.preference) { option in
-                HStack(alignment: .firstTextBaseline, spacing: 7) {
-                    Image(systemName: preferences.screenPreference == option.preference
-                          ? "largecircle.fill.circle" : "circle")
-                        .foregroundStyle(preferences.screenPreference == option.preference
-                                         ? Color.accentColor : .secondary)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(option.title)
-                            .font(.system(size: 12, weight: .medium))
-                        Text(option.detail)
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                    }
-                    Spacer()
-                }
-                .contentShape(Rectangle())
-                .onTapGesture { preferences.screenPreference = option.preference }
+            ForEach(displayOptions) { displayRow($0) }
+
+            // Only worth offering when there is more than one screen to choose
+            // between: on a single display every one of these is the same row
+            // as "Main display", said twice.
+            if pinnedDisplayOptions.count > 1 {
+                Text("Or pin it to one display")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .padding(.top, 2)
+
+                ForEach(pinnedDisplayOptions) { displayRow($0) }
             }
 
             Divider().padding(.vertical, 4)
@@ -985,10 +980,49 @@ struct SettingsView: View {
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : [.isButton])
     }
 
-    private struct DisplayOption {
+    private struct DisplayOption: Identifiable {
+        let id: String
         let preference: NotchGeometry.ScreenPreference
+        /// Set only on the per-display rows, which all share `.pinned` and so
+        /// cannot be told apart by their preference alone.
+        var pinnedID: CGDirectDisplayID? = nil
         let title: String
         let detail: String
+    }
+
+    @ViewBuilder
+    private func displayRow(_ option: DisplayOption) -> some View {
+        let selected = isChosen(option)
+        HStack(alignment: .firstTextBaseline, spacing: 7) {
+            Image(systemName: selected ? "largecircle.fill.circle" : "circle")
+                .foregroundStyle(selected ? Color.accentColor : .secondary)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(option.title)
+                    .font(.system(size: 12, weight: .medium))
+                Text(option.detail)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer()
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { choose(option) }
+    }
+
+    private func isChosen(_ option: DisplayOption) -> Bool {
+        guard preferences.screenPreference == option.preference else { return false }
+        guard let pinnedID = option.pinnedID else { return true }
+        return preferences.pinnedDisplay == Int(pinnedID)
+    }
+
+    private func choose(_ option: DisplayOption) {
+        // The display before the preference: writing them the other way round
+        // sends the island to whichever display was pinned last time, for as
+        // long as it takes the next line to run.
+        if let pinnedID = option.pinnedID {
+            preferences.pinnedDisplay = Int(pinnedID)
+        }
+        preferences.screenPreference = option.preference
     }
 
     /// Display choices, labelled with the actual attached screens.
@@ -996,40 +1030,68 @@ struct SettingsView: View {
         let screens = NSScreen.screens
         func describe(_ screen: NSScreen?) -> String {
             guard let screen else { return "not attached" }
-            let size = "\(Int(screen.frame.width))×\(Int(screen.frame.height))"
-            let notch = screen.safeAreaInsets.top > 0 ? ", has a notch" : ""
-            return "\(screen.localizedName) — \(size)\(notch)"
+            return "\(screen.localizedName) — \(geometry(screen))"
         }
 
-        let notched = screens.first { $0.safeAreaInsets.top > 0 }
+        let notched = screens.first(where: NotchGeometry.hasCutout)
         let builtIn = screens.first {
-            $0.safeAreaInsets.top > 0
+            NotchGeometry.hasCutout($0)
                 || $0.localizedName.lowercased().contains("built-in")
                 || $0.localizedName.lowercased().contains("liquid retina")
         }
 
         return [
             DisplayOption(
+                id: "notched",
                 preference: .notched,
                 title: "Notch display",
                 detail: notched.map(describe) ?? "No notched display attached — falls back to the menu bar display."
             ),
             DisplayOption(
+                id: "primary",
                 preference: .primary,
                 title: "Main display",
                 detail: describe(screens.first { $0.frame.origin == .zero } ?? screens.first)
             ),
             DisplayOption(
+                id: "active",
                 preference: .main,
                 title: "Active display",
-                detail: "Wherever the keyboard focus is — the island follows you between screens."
+                detail: "Whichever screen the pointer is on — the island follows you between them."
             ),
             DisplayOption(
+                id: "builtIn",
                 preference: .builtIn,
                 title: "Built-in display",
                 detail: builtIn.map(describe) ?? "Lid closed or no built-in display detected."
             ),
         ]
+    }
+
+    /// One row per attached screen, for naming a display outright.
+    ///
+    /// The four choices above are all *roles*, and on a MacBook driving an
+    /// external monitor every one of them resolves back to the MacBook — there
+    /// was no way to say "put it on the monitor" at all.
+    private var pinnedDisplayOptions: [DisplayOption] {
+        NSScreen.screens.compactMap { screen in
+            guard let id = NotchGeometry.displayID(of: screen) else { return nil }
+            return DisplayOption(
+                id: "display-\(id)",
+                preference: .pinned,
+                pinnedID: id,
+                title: screen.localizedName,
+                detail: geometry(screen)
+            )
+        }
+    }
+
+    /// The part of a screen's label that is not its name.
+    private func geometry(_ screen: NSScreen) -> String {
+        let size = "\(Int(screen.frame.width))×\(Int(screen.frame.height))"
+        let notch = NotchGeometry.hasCutout(screen) ? ", has a notch" : ""
+        let menuBar = screen.frame.origin == .zero ? ", menu bar" : ""
+        return "\(size)\(notch)\(menuBar)"
     }
 
     // MARK: - Account

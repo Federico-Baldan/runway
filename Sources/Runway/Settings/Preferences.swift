@@ -83,6 +83,7 @@ public final class Preferences {
     private enum Key {
         static let host = "github.host"
         static let screenPreference = "island.screen"
+        static let pinnedDisplay = "island.pinnedDisplay"
         static let repoScope = "repos.scope"
         static let repoLimit = "repos.limit"
         static let organizations = "repos.organizations"
@@ -115,6 +116,8 @@ public final class Preferences {
         self.screenPreference = NotchGeometry.ScreenPreference(
             rawValue: defaults.string(forKey: Key.screenPreference) ?? ""
         ) ?? .primary
+
+        self.pinnedDisplay = defaults.object(forKey: Key.pinnedDisplay) as? Int ?? 0
 
         self.repoScope = RepoScope(rawValue: defaults.string(forKey: Key.repoScope) ?? "")
             ?? EnvironmentDefault.string(EnvironmentDefault.repoScope).flatMap(RepoScope.init(rawValue:))
@@ -217,6 +220,15 @@ public final class Preferences {
     /// Which display the island renders on.
     public var screenPreference: NotchGeometry.ScreenPreference {
         didSet { defaults.set(screenPreference.rawValue, forKey: Key.screenPreference) }
+    }
+
+    /// The display `ScreenPreference.pinned` names, as a `CGDirectDisplayID`.
+    ///
+    /// Stored as an `Int` because that is what `UserDefaults` speaks, and kept
+    /// beside the preference rather than inside it so the preference stays a
+    /// plain string. Zero means nothing is pinned — no display ever has that ID.
+    public var pinnedDisplay: Int {
+        didSet { defaults.set(pinnedDisplay, forKey: Key.pinnedDisplay) }
     }
 
     /// Which repositories are watched.

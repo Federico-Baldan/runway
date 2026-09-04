@@ -430,7 +430,17 @@ defaults, that matters much less than it would if they were overrides.
 
 ## Other settings
 
-**Which display** — the options are labelled with your actual monitors.
+**Which display** — the options are labelled with your actual monitors. Four of
+them name a *role*: the notched display, the one with the menu bar, the one
+you're working on, the built-in one. Below those, one row per attached screen
+pins the island to that monitor outright — which is the only way to say "the
+external one" on a MacBook that is driving it, because every role resolves back
+to the MacBook.
+
+"Active display" follows the pointer, not the keyboard. `NSScreen.main` is the
+obvious answer and the wrong one here: it reports the screen of the key window,
+and this app's key window — when it has one at all — is the island itself, so
+the island would keep deciding it should stay where it already is.
 
 **Haptics** — a tap when something starts, passes, or fails. Needs a Force Touch
 trackpad; Settings says so plainly if you don't have one.
@@ -523,7 +533,7 @@ app changes:
 | `ActorFilterVerify` | who is kept and who is dropped, including re-runs and unresolved `@me` |
 | `RateBudgetVerify` | that the poll fits inside 5,000 requests an hour |
 | `CenteringVerify` | the island being centred on the *screen*, not the visible frame — off-centre by half a Dock width otherwise |
-| `NotchPlacementVerify` | the resting pill never being narrower than the cutout, and the fixed canvas containing every state |
+| `NotchPlacementVerify` | the resting pill never being narrower than the cutout, the fixed canvas containing every state, and which display a pointer is on across a multi-monitor arrangement |
 
 More detail in [`docs/`](docs/).
 

@@ -55,6 +55,27 @@ enum NotchPlacementVerify {
                NotchMath.Width.resting(hasNotch: false, notchWidth: 0) == NotchMath.Width.collapsed)
 
         print()
+        print("── which display the pointer is on ──")
+        // A MacBook at the origin with an external monitor to its left: the
+        // left-hand screen has a negative x origin, which is exactly the case a
+        // naive `x < width` test gets wrong by one whole display.
+        let laptop = CGRect(x: 0, y: 0, width: 1512, height: 982)
+        let external = CGRect(x: -2560, y: 0, width: 2560, height: 1440)
+        let frames = [laptop, external]
+        assert("a point on the laptop resolves to the laptop",
+               NotchMath.screenIndex(containing: CGPoint(x: 700, y: 500), in: frames) == 0)
+        assert("a point to the left resolves to the external display",
+               NotchMath.screenIndex(containing: CGPoint(x: -1200, y: 700), in: frames) == 1)
+        assert("the seam belongs to exactly one screen",
+               NotchMath.screenIndex(containing: CGPoint(x: 0, y: 500), in: frames) == 0)
+        assert("the far edge belongs to the neighbour, not to both",
+               NotchMath.screenIndex(containing: CGPoint(x: -2560, y: 500), in: frames) == 1)
+        assert("a point off the arrangement resolves to nothing",
+               NotchMath.screenIndex(containing: CGPoint(x: 9000, y: 500), in: frames) == nil)
+        assert("no screens means no answer",
+               NotchMath.screenIndex(containing: .zero, in: []) == nil)
+
+        print()
         print("── the canvas must contain every state it can reach ──")
         for (label, width, visibleHeight, band) in [
             ("14\" MacBook Pro", CGFloat(1512), CGFloat(944), CGFloat(32)),

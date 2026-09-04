@@ -65,7 +65,10 @@ public final class NotchPanelController {
 
     /// Which display to render on.
     public var screenPreference: NotchGeometry.ScreenPreference = .primary {
-        didSet { reposition() }
+        didSet {
+            followActiveDisplay(screenPreference == .main)
+            reposition()
+        }
     }
 
     /// Whether the island should stay on screen with nothing running.
@@ -91,6 +94,13 @@ public final class NotchPanelController {
     }
 
     private var currentPlacement: NotchGeometry.Placement?
+    /// The display the panel is currently on, so a move between screens can be
+    /// told apart from a resize on the one it is already on.
+    private var currentDisplayID: CGDirectDisplayID?
+    /// Global pointer monitor, installed only while following the active display.
+    private var pointerMonitor: Any?
+    /// Rate limit for that monitor — see `pointerMoved`.
+    private var lastPointerCheck: TimeInterval = 0
     /// Notification tokens, kept per centre.
     ///
     /// A token only unregisters from the centre that issued it, so one shared
@@ -160,6 +170,7 @@ public final class NotchPanelController {
         }
         observers.removeAll()
         workspaceObservers.removeAll()
+        followActiveDisplay(false)
     }
 
     /// Corner treatment differs under a cutout, so rebuild when it changes.
@@ -309,11 +320,76 @@ public final class NotchPanelController {
             || placement.notchWidth != currentPlacement?.notchWidth
         currentPlacement = placement
 
+        let displayID = NotchGeometry.displayID(of: screen)
+        let changedDisplays = displayID != currentDisplayID
+        currentDisplayID = displayID
+
         if panel.frame != placement.frame {
             panel.setFrame(placement.frame, display: true)
         }
         if notchChanged { updateRootView() }
+        // The hit region is derived from the display, so it goes stale the
+        // moment the island changes screens: a cutout-shaped region left behind
+        // on a notchless monitor is an island that draws and then ignores the
+        // pointer, which is what "it doesn't work over there" looks like.
+        updateInteractiveRegion()
         applyIdlePresence()
+
+        // Crossing displays is not reliably just a frame change. AppKit can
+        // leave a window ordered into the screen it came from, so the island
+        // lands on the new one invisible. Re-assert the order once the move has
+        // been committed — a runloop hop later, because doing it in the same
+        // pass is what fails.
+        if changedDisplays, isShown {
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self, self.isShown else { return }
+                    self.panel.orderFrontRegardless()
+                }
+            }
+        }
+    }
+
+    /// Watch the pointer while the island is set to follow the active display.
+    ///
+    /// There is no notification for "the active display changed". The two this
+    /// class already listens to fire for display *configuration* changes and
+    /// space switches, and neither of those happens when you simply move to the
+    /// other monitor — so "Active display" resolved once at launch and then
+    /// never again, which from the outside is indistinguishable from the
+    /// setting doing nothing at all.
+    ///
+    /// A global monitor for mouse events needs no accessibility permission;
+    /// only keyboard events do.
+    private func followActiveDisplay(_ follow: Bool) {
+        guard follow != (pointerMonitor != nil) else { return }
+        if follow {
+            pointerMonitor = NSEvent.addGlobalMonitorForEvents(
+                matching: [.mouseMoved, .leftMouseDragged, .rightMouseDragged]
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.pointerMoved() }
+            }
+        } else if let pointerMonitor {
+            NSEvent.removeMonitor(pointerMonitor)
+            self.pointerMonitor = nil
+        }
+    }
+
+    /// Move only when the pointer has actually crossed onto another display.
+    ///
+    /// Mouse moves arrive by the hundred a second; a window move does not need
+    /// to. The rate limit bounds how often the screen list is walked, and the
+    /// display comparison stops anything at all happening while the pointer
+    /// wanders around the screen the island is already on.
+    private func pointerMoved() {
+        let now = ProcessInfo.processInfo.systemUptime
+        guard now - lastPointerCheck > 0.1 else { return }
+        lastPointerCheck = now
+
+        guard let screen = NotchGeometry.screen(for: screenPreference),
+              NotchGeometry.displayID(of: screen) != currentDisplayID
+        else { return }
+        reposition()
     }
 
     /// Lid open/close and monitor sleep move the panel between displays mid-session.

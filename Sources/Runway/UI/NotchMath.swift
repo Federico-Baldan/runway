@@ -124,6 +124,22 @@ public enum NotchMath {
         return CGPoint(x: originX.rounded(), y: originY.rounded())
     }
 
+    /// Which screen a point is on, as an index into `frames`.
+    ///
+    /// Lives here rather than in `NotchGeometry` for the reason everything else
+    /// here does: `NSScreen` cannot be built in a test, and "which display is
+    /// the pointer on" is arithmetic that is wrong by one whole screen and
+    /// still looks plausible in a screenshot.
+    ///
+    /// Half-open on the far edges, so two abutting displays never both claim a
+    /// pointer sitting exactly on the seam between them.
+    public static func screenIndex(containing point: CGPoint, in frames: [CGRect]) -> Int? {
+        frames.firstIndex { frame in
+            point.x >= frame.minX && point.x < frame.maxX
+                && point.y >= frame.minY && point.y < frame.maxY
+        }
+    }
+
     /// Notch width from the two auxiliary areas either side of the cutout.
     ///
     /// macOS reports the usable menu-bar strips, not the cutout, so the cutout

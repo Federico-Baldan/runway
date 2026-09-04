@@ -24,9 +24,12 @@ enum Diagnostics {
 
     private static func displays() {
         let screens = NSScreen.screens
+        let active = NotchGeometry.activeScreen()
+        let pinned = Preferences.shared.pinnedDisplay
         print("displays attached: \(screens.count)")
         for (index, screen) in screens.enumerated() {
             let isMain = screen == NSScreen.main
+            let isActive = screen == active
             let notch = screen.safeAreaInsets.top
             print("  [\(index)] \(screen.localizedName)")
             print("       size          \(Int(screen.frame.width))x\(Int(screen.frame.height)) at \(Int(screen.frame.origin.x)),\(Int(screen.frame.origin.y))")
@@ -34,6 +37,10 @@ enum Diagnostics {
             print("       safeAreaTop   \(notch)  \(notch > 0 ? "<- HAS A NOTCH" : "(no notch)")")
             print("       menu bar      \(screen.frame.origin == .zero ? "yes" : "no")")
             print("       keyboard focus\(isMain ? " yes" : " no")")
+            print("       pointer is here\(isActive ? " yes" : " no")")
+            if let id = NotchGeometry.displayID(of: screen) {
+                print("       display id    \(id)\(Int(id) == pinned ? "  <- PINNED" : "")")
+            }
             if let left = screen.auxiliaryTopLeftArea, let right = screen.auxiliaryTopRightArea {
                 let cutout = screen.frame.width - left.width - right.width
                 print("       cutout width  \(Int(cutout))pt")
@@ -47,6 +54,10 @@ enum Diagnostics {
     private static func placement() {
         let preference = Preferences.shared.screenPreference
         print("screen preference: \(preference.rawValue)")
+        if preference == .pinned {
+            let pinned = Preferences.shared.pinnedDisplay
+            print("  pinned display: \(pinned == 0 ? "none set" : String(pinned))")
+        }
         guard let chosen = NotchGeometry.screen(for: preference) else {
             print("  !! no screen resolved — the island cannot be placed")
             print()

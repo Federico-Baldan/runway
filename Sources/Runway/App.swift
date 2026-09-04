@@ -105,6 +105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Last-seen preference values, so a change notification for an unrelated
     /// key does not reconfigure the monitor.
     private var lastScreenPreference: NotchGeometry.ScreenPreference?
+    private var lastPinnedDisplay: Int?
     private var lastIdleMark: Bool?
     private var lastIdleMarkPosition: IdleMarkPosition?
     private var lastIdleMarkTint: IdleMarkTint?
@@ -145,6 +146,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onQuit: { NSApplication.shared.terminate(nil) }
         )
         panelController = controller
+        // Before the preference, not after: the preference is what makes the
+        // island move, and it must not move to whatever was pinned last time
+        // on its way to the display that is actually pinned now.
+        NotchGeometry.pinnedDisplayID = Self.pinnedDisplayID()
         controller.screenPreference = Preferences.shared.screenPreference
         controller.showsIdleMark = Preferences.shared.idleMark
         controller.idleMarkPosition = Preferences.shared.idleMarkPosition
@@ -258,6 +263,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// The pinned display as a `CGDirectDisplayID`, or nil when none is set.
+    private static func pinnedDisplayID() -> CGDirectDisplayID? {
+        let stored = Preferences.shared.pinnedDisplay
+        return stored > 0 ? CGDirectDisplayID(stored) : nil
+    }
+
     /// Force an immediate poll — used by "Refresh Now".
     private func refreshNow() {
         let monitor = self.monitor
@@ -277,6 +288,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func observePreferences() {
         lastHost = Preferences.shared.host
         lastScreenPreference = Preferences.shared.screenPreference
+        lastPinnedDisplay = Preferences.shared.pinnedDisplay
         lastIdleMark = Preferences.shared.idleMark
         lastIdleMarkPosition = Preferences.shared.idleMarkPosition
         lastIdleMarkTint = Preferences.shared.idleMarkTint
@@ -304,6 +316,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if host != lastHost {
             lastHost = host
             hostChanged(to: host)
+        }
+
+        // Ahead of the screen preference, for the reason given where it is
+        // first pushed in: a stale pinned ID would send the island to the wrong
+        // display for as long as it took the next line to run.
+        let pinned = Preferences.shared.pinnedDisplay
+        if pinned != lastPinnedDisplay {
+            lastPinnedDisplay = pinned
+            NotchGeometry.pinnedDisplayID = Self.pinnedDisplayID()
+            panelController?.reposition()
         }
 
         let screen = Preferences.shared.screenPreference
