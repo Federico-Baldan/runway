@@ -358,8 +358,14 @@ struct SettingsView: View {
     }
 
     /// Live count of runs each actor scope would show.
+    ///
+    /// Counted from `unfilteredRuns`, because `runs` has already been through
+    /// whichever option is selected right now — so filtering it again could
+    /// only ever subtract. Previewing "Everyone" from "Only my runs" counted my
+    /// runs and printed that beside both options, which is precisely the
+    /// comparison this number is here to make.
     private func runCount(for option: ActorScope) -> Int? {
-        let runs = model.state.runs
+        let runs = model.state.unfilteredRuns
         guard !runs.isEmpty else { return nil }
         let filter = ActorFilter.resolve(
             scope: option,

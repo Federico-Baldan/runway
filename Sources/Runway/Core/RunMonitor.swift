@@ -4,6 +4,20 @@ import Foundation
 public struct MonitorState: Sendable, Equatable {
     /// Runs across every watched repository, already actor-filtered.
     public var runs: [WorkflowRun]
+    /// The same poll's runs *before* the actor filter and the dismissals.
+    ///
+    /// Carried so Settings can answer "how many would each option show", which
+    /// it cannot do from `runs`: those have already been narrowed by whichever
+    /// option is currently selected, so filtering them again can only ever
+    /// subtract. Previewing "Everyone" from "Only my runs" reported the number
+    /// of my runs — the same figure as the option beside it, which is exactly
+    /// the comparison the count exists to make.
+    ///
+    /// Nearly free to carry. The monitor is already holding this array, and an
+    /// array is copy-on-write, so handing it over is a retain rather than a
+    /// copy of every run. It stays out of `emitSignature` deliberately: it
+    /// moves whenever anybody's run moves, which would defeat the gate.
+    public var unfilteredRuns: [WorkflowRun]
     /// Repositories currently being polled.
     public var repositories: [String]
     public var lastUpdate: Date?
@@ -15,6 +29,7 @@ public struct MonitorState: Sendable, Equatable {
 
     public init(
         runs: [WorkflowRun] = [],
+        unfilteredRuns: [WorkflowRun] = [],
         repositories: [String] = [],
         lastUpdate: Date? = nil,
         error: String? = nil,
@@ -23,6 +38,7 @@ public struct MonitorState: Sendable, Equatable {
         knownActors: [String] = []
     ) {
         self.runs = runs
+        self.unfilteredRuns = unfilteredRuns
         self.repositories = repositories
         self.lastUpdate = lastUpdate
         self.error = error
@@ -306,6 +322,7 @@ public actor RunMonitor {
             approvalsFromOthers: includeApprovalsFromOthers,
             dismissed: dismissed
         )
+        state.unfilteredRuns = unfilteredRuns
         // `force`, for the same reason `reapplyVisibility` forces: a
         // configuration change is a state change the emit gate cannot see.
         //
@@ -377,6 +394,7 @@ public actor RunMonitor {
             approvalsFromOthers: includeApprovalsFromOthers,
             dismissed: dismissed
         )
+        state.unfilteredRuns = unfilteredRuns
         emitIfChanged(force: true)
     }
 
@@ -619,6 +637,7 @@ public actor RunMonitor {
                 approvalsFromOthers: includeApprovalsFromOthers,
                 dismissed: dismissed
             )
+            state.unfilteredRuns = unfilteredRuns
             state.repositories = watched.map(\.fullName)
             state.knownActors = seenLogins.sorted { $0.lowercased() < $1.lowercased() }
             state.rateLimit = await client.currentRateLimit()
