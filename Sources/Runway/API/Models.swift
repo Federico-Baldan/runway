@@ -672,7 +672,15 @@ public struct WorkflowRun: Codable, Sendable, Hashable, Identifiable {
 
     /// A re-run someone else kicked off.
     public var isRerun: Bool {
-        runAttempt > 1 || (actor?.login != triggeringActor?.login && triggeringActor != nil)
+        if runAttempt > 1 { return true }
+        // Both, or neither. The old form compared `actor?.login` to
+        // `triggeringActor?.login` through the optionals, so a run that carries
+        // a triggering actor and no actor at all compared nil against a name,
+        // came out unequal, and was drawn with the re-run arrow on its first
+        // attempt. Two different people is the claim; one person and a missing
+        // field is not evidence of it.
+        guard let actor, let triggeringActor else { return false }
+        return actor.login != triggeringActor.login
     }
 
     public var jobList: [Job] { jobs }

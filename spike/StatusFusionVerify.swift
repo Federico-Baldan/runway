@@ -127,6 +127,28 @@ enum StatusFusionVerify {
                    .firstRunningJob?.name == "build")
 
         print()
+        print("── what counts as a re-run ──")
+        func who(_ login: String) -> GitHubActor { GitHubActor(login: login) }
+        func attempt(_ n: Int, actor: GitHubActor?, triggering: GitHubActor?) -> WorkflowRun {
+            WorkflowRun(id: 1, runAttempt: n, status: .success,
+                        actor: actor, triggeringActor: triggering, repository: "acme/api")
+        }
+        assert("a second attempt is a re-run whoever pushed it",
+               attempt(2, actor: who("alice"), triggering: who("alice")).isRerun)
+        assert("and so is somebody else's finger on the button",
+               attempt(1, actor: who("alice"), triggering: who("bob")).isRerun)
+        assert("one person's own first attempt is not",
+               !attempt(1, actor: who("alice"), triggering: who("alice")).isRerun)
+        // The false positive: comparing through the optionals made a missing
+        // `actor` compare unequal to a present `triggering_actor`, so a first
+        // attempt was drawn with the re-run arrow.
+        assert("a missing actor is not evidence of a second person",
+               !attempt(1, actor: nil, triggering: who("bob")).isRerun)
+        assert("nor is a missing triggering actor",
+               !attempt(1, actor: who("alice"), triggering: nil).isRerun)
+        assert("nor both missing", !attempt(1, actor: nil, triggering: nil).isRerun)
+
+        print()
         if failures == 0 {
             print("RESULT: PASS — status fusion holds for every documented pair")
         } else {
