@@ -247,6 +247,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard !Task.isCancelled, let self else { return }
             let monitor = self.monitor
             let url = GitHubClient.baseURL(for: host)
+            // A different instance is a different world: `setBaseURL` throws
+            // every run away and the next poll repopulates from nothing, so
+            // every run it finds looks new. See `applyChangedPreferences`.
+            Haptics.resetBaseline()
             Task.detached {
                 await monitor.setBaseURL(url)
                 await monitor.refreshNow()
@@ -329,6 +333,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let signature = configurationSignature()
         if signature != lastConfigurationSignature {
             lastConfigurationSignature = signature
+            // Before the reconfigure, not after: `configure(_:)` re-derives what
+            // is on screen and emits immediately, and that emit is what reaches
+            // `Haptics`.
+            //
+            // `Haptics` infers "a run started" from a run it has not seen
+            // before, which is right when a poll brings one back and wrong
+            // every time the *filter* moves underneath it. Narrowing "Whose
+            // runs" drops a colleague's build out of `lastStatus`; widening it
+            // again puts the same build back looking exactly like a new one,
+            // and the tap that follows announces something that started twenty
+            // minutes ago. The same is true of every scope here — changing the
+            // repository list re-derives the visible set without anything
+            // having happened on GitHub at all.
+            //
+            // The same trade the token path already makes two screens up, for
+            // the same reason: a lost baseline costs the next poll's taps, and
+            // that is the right price for never inventing one. Anything
+            // genuinely starting is one cadence away.
+            Haptics.resetBaseline()
             applyConfiguration()
         }
     }
@@ -496,6 +519,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Restore every dismissed run. Wired to the Settings button.
     private func restoreDismissed() {
         let monitor = self.monitor
+        // The third way the visible set moves without GitHub moving: a run the
+        // user hid is not in `Haptics`' history either, so bringing it back
+        // reads as it starting. See `applyChangedPreferences`.
+        Haptics.resetBaseline()
         Task.detached { await monitor.restoreDismissed() }
     }
 
