@@ -442,6 +442,13 @@ obvious answer and the wrong one here: it reports the screen of the key window,
 and this app's key window — when it has one at all — is the island itself, so
 the island would keep deciding it should stay where it already is.
 
+**Draw a notch on displays that don't have one** — on by default. An external
+monitor has no cutout, so the island used to float under the menu bar as a pill,
+and at rest it drew *nothing at all* — no mark, no pill, no sign the app was
+open. Drawn, it fills the menu bar's own band at the top centre, where the bar is
+empty on every Mac, and behaves exactly as it does on a notched MacBook. A
+display that already has a cutout is untouched.
+
 **Haptics** — a tap when something starts, passes, or fails. Needs a Force Touch
 trackpad; Settings says so plainly if you don't have one.
 

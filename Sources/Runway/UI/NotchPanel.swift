@@ -75,8 +75,11 @@ public final class NotchPanelController {
     ///
     /// The preference as the user set it. It is AND-ed with the cutout here
     /// rather than in the model, because this is the only object that knows
-    /// there is one: off a notch the resting island is a floating pill under
-    /// the menu bar, and a pill that never leaves is furniture. See `IdleMark`.
+    /// whether there is one — real or drawn. A pill floating under the menu bar
+    /// that never leaves is furniture; a notch, including a drawn one, is not,
+    /// because it fills the menu bar's own band and reads as hardware. So the
+    /// mark rests inside either kind and is suppressed only where there is
+    /// neither. See `IdleMark` and `NotchGeometry.drawsNotchOnNotchlessDisplays`.
     public var showsIdleMark = false {
         didSet { applyIdlePresence() }
     }

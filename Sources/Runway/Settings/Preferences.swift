@@ -84,6 +84,7 @@ public final class Preferences {
         static let host = "github.host"
         static let screenPreference = "island.screen"
         static let pinnedDisplay = "island.pinnedDisplay"
+        static let drawnNotch = "island.drawnNotch"
         static let repoScope = "repos.scope"
         static let repoLimit = "repos.limit"
         static let organizations = "repos.organizations"
@@ -118,6 +119,13 @@ public final class Preferences {
         ) ?? .primary
 
         self.pinnedDisplay = defaults.object(forKey: Key.pinnedDisplay) as? Int ?? 0
+
+        // On by default: with it off, a display without a cutout shows nothing
+        // at all at rest, which is the state people report as "it never
+        // appeared". See `NotchGeometry.drawsNotchOnNotchlessDisplays`.
+        self.drawnNotch = stored(Key.drawnNotch)
+            ? defaults.bool(forKey: Key.drawnNotch)
+            : true
 
         self.repoScope = RepoScope(rawValue: defaults.string(forKey: Key.repoScope) ?? "")
             ?? EnvironmentDefault.string(EnvironmentDefault.repoScope).flatMap(RepoScope.init(rawValue:))
@@ -229,6 +237,11 @@ public final class Preferences {
     /// plain string. Zero means nothing is pinned — no display ever has that ID.
     public var pinnedDisplay: Int {
         didSet { defaults.set(pinnedDisplay, forKey: Key.pinnedDisplay) }
+    }
+
+    /// Draw a notch on displays that do not have one.
+    public var drawnNotch: Bool {
+        didSet { defaults.set(drawnNotch, forKey: Key.drawnNotch) }
     }
 
     /// Which repositories are watched.

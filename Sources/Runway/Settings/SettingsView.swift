@@ -703,14 +703,34 @@ struct SettingsView: View {
 
             Divider().padding(.vertical, 4)
 
+            Toggle(isOn: $preferences.drawnNotch) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Draw a notch on displays that don't have one")
+                        .font(.system(size: 12, weight: .medium))
+                    Text("External monitors have no cutout, so the island used to "
+                         + "float under the menu bar as a pill — and at rest it showed "
+                         + "nothing at all. With this on it fills the menu bar's own "
+                         + "band at the top centre, where the bar is empty anyway, and "
+                         + "behaves exactly as it does on a notched Mac. No effect on a "
+                         + "display that already has a cutout.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .toggleStyle(.switch)
+
+            Divider().padding(.vertical, 4)
+
             Toggle(isOn: $preferences.idleMark) {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Keep the mark in the notch when nothing is running")
                         .font(.system(size: 12, weight: .medium))
                     Text("The island stays as a band under the cutout, blended into it, "
                          + "with the Runway mark in it — blinking and looking around every "
-                         + "so often. Notched Macs only: off a notch the resting island is "
-                         + "a floating pill, and a pill that never leaves is furniture.")
+                         + "so often. Needs a notch, real or drawn: without one the "
+                         + "resting island is a floating pill, and a pill that never "
+                         + "leaves is furniture.")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                         .fixedSize(horizontal: false, vertical: true)

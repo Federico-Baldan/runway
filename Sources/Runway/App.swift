@@ -106,6 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// key does not reconfigure the monitor.
     private var lastScreenPreference: NotchGeometry.ScreenPreference?
     private var lastPinnedDisplay: Int?
+    private var lastDrawnNotch: Bool?
     private var lastIdleMark: Bool?
     private var lastIdleMarkPosition: IdleMarkPosition?
     private var lastIdleMarkTint: IdleMarkTint?
@@ -150,6 +151,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // island move, and it must not move to whatever was pinned last time
         // on its way to the display that is actually pinned now.
         NotchGeometry.pinnedDisplayID = Self.pinnedDisplayID()
+        // Also before the preference: it changes what every screen measures as,
+        // so the first placement must already know the answer.
+        NotchGeometry.drawsNotchOnNotchlessDisplays = Preferences.shared.drawnNotch
         controller.screenPreference = Preferences.shared.screenPreference
         controller.showsIdleMark = Preferences.shared.idleMark
         controller.idleMarkPosition = Preferences.shared.idleMarkPosition
@@ -289,6 +293,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         lastHost = Preferences.shared.host
         lastScreenPreference = Preferences.shared.screenPreference
         lastPinnedDisplay = Preferences.shared.pinnedDisplay
+        lastDrawnNotch = Preferences.shared.drawnNotch
         lastIdleMark = Preferences.shared.idleMark
         lastIdleMarkPosition = Preferences.shared.idleMarkPosition
         lastIdleMarkTint = Preferences.shared.idleMarkTint
@@ -325,6 +330,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if pinned != lastPinnedDisplay {
             lastPinnedDisplay = pinned
             NotchGeometry.pinnedDisplayID = Self.pinnedDisplayID()
+            panelController?.reposition()
+        }
+
+        let drawnNotch = Preferences.shared.drawnNotch
+        if drawnNotch != lastDrawnNotch {
+            lastDrawnNotch = drawnNotch
+            NotchGeometry.drawsNotchOnNotchlessDisplays = drawnNotch
+            // Not just a redraw: it changes the band, the width, and whether
+            // the panel hangs from the top of the screen or floats below the
+            // menu bar, so the whole placement has to be taken again.
             panelController?.reposition()
         }
 

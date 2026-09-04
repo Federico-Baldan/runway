@@ -54,6 +54,8 @@ enum Diagnostics {
     private static func placement() {
         let preference = Preferences.shared.screenPreference
         print("screen preference: \(preference.rawValue)")
+        print("  drawn notch: \(Preferences.shared.drawnNotch ? "on" : "off")"
+            + "  (a display without a cutout gets one drawn in the menu bar)")
         if preference == .pinned {
             let pinned = Preferences.shared.pinnedDisplay
             print("  pinned display: \(pinned == 0 ? "none set" : String(pinned))")

@@ -76,6 +76,36 @@ enum NotchPlacementVerify {
                NotchMath.screenIndex(containing: .zero, in: []) == nil)
 
         print()
+        print("── a notch drawn onto a monitor ──")
+        // An external display has no cutout, so the island used to float under
+        // the menu bar — and at rest it drew nothing at all. Drawn, it has to
+        // sit in the menu bar's own band, flush with the top of the screen, or
+        // it reads as a window that missed the edge rather than as hardware.
+        let monitor = CGRect(x: 0, y: 0, width: 2560, height: 1440)
+        let belowBar = CGRect(x: 0, y: 0, width: 2560, height: 1416)
+        let band: CGFloat = 24
+        let drawnCanvas = NotchMath.canvasSize(
+            screenWidth: monitor.width, visibleHeight: belowBar.height,
+            notchBand: band, rows: 8
+        )
+        let drawn = NotchMath.origin(
+            screenFrame: monitor, visibleFrame: belowBar, size: drawnCanvas, hasNotch: true
+        )
+        let floating = NotchMath.origin(
+            screenFrame: monitor, visibleFrame: belowBar, size: drawnCanvas, hasNotch: false
+        )
+        print("  drawn top edge \(drawn.y + drawnCanvas.height), screen top \(monitor.maxY)")
+        assert("a drawn notch is flush with the top of the screen",
+               drawn.y + drawnCanvas.height == monitor.maxY)
+        assert("which is above the pill it replaces", drawn.y > floating.y)
+        assert("still centred on the screen, not on the visible frame",
+               drawn.x + drawnCanvas.width / 2 == monitor.midX)
+        assert("the canvas reserves more than the band it must keep clear",
+               drawnCanvas.height > band)
+        assert("the resting body matches the drawn cutout, same as a real one",
+               NotchMath.Width.restingBody(notchWidth: 190) == 190)
+
+        print()
         print("── the canvas must contain every state it can reach ──")
         for (label, width, visibleHeight, band) in [
             ("14\" MacBook Pro", CGFloat(1512), CGFloat(944), CGFloat(32)),

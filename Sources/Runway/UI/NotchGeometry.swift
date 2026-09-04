@@ -5,6 +5,23 @@ import AppKit
 public enum NotchGeometry {
     /// Simulate a notch, for developing the notched layout with the lid closed.
     public static var simulateNotch = false
+
+    /// Draw a notch on displays that do not physically have one.
+    ///
+    /// Off a real cutout the island was a pill floating under the menu bar, and
+    /// the resting mark was suppressed outright — the reasoning being that a
+    /// pill which never leaves is furniture. That is true, and it left the app
+    /// showing *nothing at all* on an external display with nothing running:
+    /// no mark, no pill, no way to tell it was even open.
+    ///
+    /// A drawn notch is not furniture. It fills the menu bar's own band at the
+    /// top centre, where the bar is empty on every Mac, and reads as part of
+    /// the hardware rather than as a window sitting on top of it. It is what
+    /// every other notch app does on a monitor, and it is the only state in
+    /// which the island is visible at rest off a MacBook.
+    ///
+    /// Pushed in from `Preferences` — see `AppDelegate.applyChangedPreferences`.
+    public static var drawsNotchOnNotchlessDisplays = true
     static let simulatedNotchWidth: CGFloat = 190
     static let simulatedNotchHeight: CGFloat = 32
 
@@ -100,7 +117,24 @@ public enum NotchGeometry {
         // notched panel, which turned a notched Mac into a notchless one for
         // as long as the bar was hidden. The strips either side of the cutout
         // are still reported, and their height is the band it occupies.
-        return screen.auxiliaryTopLeftArea?.height ?? 0
+        if let auxiliary = screen.auxiliaryTopLeftArea { return auxiliary.height }
+        return drawsNotchOnNotchlessDisplays ? menuBarBand(of: screen) : 0
+    }
+
+    /// The band a drawn notch fills: the menu bar's own height on that screen.
+    ///
+    /// Exactly the menu bar and no more. Taller and the notch overhangs into
+    /// the window below and stops reading as hardware; shorter and a strip of
+    /// menu bar shows above it, which reads as a window that missed the top of
+    /// the screen. `frame.maxY - visibleFrame.maxY` *is* the menu bar: the Dock
+    /// only ever eats the other three edges.
+    ///
+    /// Zero means there is no menu bar to measure — the bar is set to hide, or
+    /// this is a secondary display without one. Draw the standard height rather
+    /// than a notch with no depth.
+    static func menuBarBand(of screen: NSScreen) -> CGFloat {
+        let measured = screen.frame.maxY - screen.visibleFrame.maxY
+        return measured > 1 ? measured : 24
     }
 
     /// Does this display physically have a cutout?
@@ -192,6 +226,16 @@ public enum NotchGeometry {
                 leftAreaWidth: left.width,
                 rightAreaWidth: right.width
             )
+        }
+
+        // A drawn notch has no auxiliary areas to measure it from. Use the
+        // width a MacBook's cutout actually is: a fraction of the screen would
+        // be a banner on a 5K panel, and the real thing is a fixed physical
+        // size on every model that has one. This also catches the notched Mac
+        // that reports a band but nil auxiliary areas, which used to produce a
+        // cutout-shaped island exactly zero points wide.
+        if hasNotch, notchWidth <= 0 {
+            notchWidth = simulatedNotchWidth
         }
 
         let origin = NotchMath.origin(
