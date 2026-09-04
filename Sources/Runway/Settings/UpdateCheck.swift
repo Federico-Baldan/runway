@@ -45,7 +45,21 @@ enum UpdateCheck {
             completion?(availableVersion)
             return
         }
-        defaults.set(Date(), forKey: lastCheckKey)
+        // The stamp is written when an answer actually arrives, not here.
+        //
+        // It used to be set before the request went out, which reads as
+        // throttling and behaves as something else: `checkIfDue` runs once, from
+        // `StatusItemController.init`, so the only moment it can fire is launch.
+        // Launch once without a network — a commute, a café portal that has not
+        // been signed into yet — and the check failed, the day was marked spent,
+        // and nothing asked again until tomorrow's launch. For anyone who
+        // habitually opens their laptop before they have connectivity, that is
+        // every day, and Homebrew is the only other thing that would ever
+        // mention a new version.
+        //
+        // Re-entrancy is not why it was early: there is exactly one caller and
+        // it runs once per process. A failure now costs one request on the next
+        // launch, which is what "check once a day" was always meant to mean.
         check(completion: completion)
     }
 
@@ -72,6 +86,11 @@ enum UpdateCheck {
             }
             let version = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
             Task { @MainActor in
+                // GitHub answered, so the day is spent — see `checkIfDue`. Only
+                // here: every path that reaches this closure without a readable
+                // tag has learned nothing, and leaves the next launch free to
+                // ask again.
+                UserDefaults.standard.set(Date(), forKey: lastCheckKey)
                 UserDefaults.standard.set(version, forKey: latestSeenKey)
                 availableVersion = isNewer(version, than: currentVersion) ? version : nil
                 completion?(availableVersion)
