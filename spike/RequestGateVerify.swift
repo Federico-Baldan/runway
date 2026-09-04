@@ -143,6 +143,39 @@ enum RequestGateVerify {
                !RunMonitor.shouldFetchApprovals(for: finished(.success, ago: 10)))
 
         print()
+        print("── the watch list: one repository, one request ──")
+        // GitHub does not distinguish `acme/api` from `acme/API`, and this list
+        // is taken verbatim from Settings or `RUNWAY_REPOS`. Two entries meant
+        // two polls a cycle for one repository — and worse, `fetchRuns` stamps
+        // the configured spelling onto every run, so one build came back under
+        // two identities and the island drew it twice.
+        func repo(_ name: String) -> Repository { Repository(fullName: name) }
+
+        assert("the same repository in two spellings is polled once",
+               RunMonitor.watchList(
+                   for: [repo("acme/api"), repo("acme/API")], carryingOver: []
+               ).count == 1)
+        assert("and it keeps the spelling it arrived with, which is what goes in the URL",
+               RunMonitor.watchList(
+                   for: [repo("acme/API"), repo("acme/api")], carryingOver: []
+               ).first?.fullName == "acme/API")
+        assert("an exact duplicate is still dropped",
+               RunMonitor.watchList(
+                   for: [repo("acme/api"), repo("acme/api")], carryingOver: []
+               ).count == 1)
+        assert("two genuinely different repositories both survive",
+               RunMonitor.watchList(
+                   for: [repo("acme/api"), repo("acme/web")], carryingOver: []
+               ).count == 2)
+        // A repo demoted for having no Actions must not be promoted back on
+        // every five-minute rediscovery.
+        assert("what the last list learned is carried across the refresh",
+               RunMonitor.watchList(
+                   for: [repo("acme/api")],
+                   carryingOver: [WatchedRepo(fullName: "acme/api", hasWorkflows: false)]
+               ).first?.hasWorkflows == false)
+
+        print()
         if failures == 0 {
             print("RESULT: PASS — a poll spends only what the budget says it does")
         } else {

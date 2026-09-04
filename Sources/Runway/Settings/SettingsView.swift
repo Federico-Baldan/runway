@@ -641,7 +641,17 @@ struct SettingsView: View {
 
     private func addRepository() {
         let trimmed = newRepository.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.contains("/"), !preferences.explicitRepositories.contains(trimmed) else { return }
+        // Case-insensitively, the way `Preferences.watchActor` already checks
+        // the actor list beside it. GitHub does not distinguish `acme/api` from
+        // `acme/API`, so an exact match let the same repository into the list
+        // twice — and two entries mean two polls a cycle and the same run drawn
+        // twice, under two identities. `RunMonitor` folds the case on its way
+        // in as well; this is what stops the list looking wrong in Settings.
+        guard trimmed.contains("/"),
+              !preferences.explicitRepositories.contains(where: {
+                  $0.caseInsensitiveCompare(trimmed) == .orderedSame
+              })
+        else { return }
         preferences.explicitRepositories.append(trimmed)
         newRepository = ""
     }

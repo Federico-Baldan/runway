@@ -690,6 +690,20 @@ public actor RunMonitor {
             explicit: explicitRepositories
         )
 
+        watched = Self.watchList(for: repositories, carryingOver: watched)
+        repoListFetchedAt = Date()
+    }
+
+    /// The watch list for a freshly discovered set of repositories, carrying
+    /// forward what the previous one had learned.
+    ///
+    /// Split out for the reason `merged` and `interval` are: it is a decision
+    /// with an answer worth asserting, and asserting it needs neither an actor
+    /// nor a network. `spike/RequestGateVerify.swift` runs it.
+    static func watchList(
+        for repositories: [Repository],
+        carryingOver watched: [WatchedRepo]
+    ) -> [WatchedRepo] {
         // Carry the learned `hasWorkflows` flag across a refresh, so a repo that
         // was demoted for having no Actions is not promoted back every 5 minutes.
         let previous = Dictionary(
@@ -701,13 +715,25 @@ public actor RunMonitor {
         // request per cycle and — until this — a trap on the duplicate run
         // identities it produced. `.explicit` takes the list verbatim from
         // Settings or `RUNWAY_REPOS`, neither of which de-duplicates.
+        // Case-insensitively, because GitHub is. `acme/api` and `acme/API` are
+        // one repository there and were two here, which is the whole bug this
+        // paragraph is about rather than a nicety: both got polled, so the
+        // request that was supposed to be de-duplicated was spent twice a
+        // cycle; and `fetchRuns` stamps the *configured* spelling onto every
+        // run it returns, so one build came back as `acme/api#41/1` and
+        // `acme/API#41/1` — two identities, two rows on the island for one run,
+        // and two `ForEach` entries carrying the same `WorkflowRun.id`, which
+        // is GitHub's run number and identical across both.
+        //
+        // Only the key is folded. `fullName` keeps whatever spelling it
+        // arrived with, because that is what goes in the URL, and GitHub does
+        // not mind either.
         var seen = Set<String>()
-        watched = repositories.compactMap { repository in
-            guard seen.insert(repository.fullName).inserted else { return nil }
+        return repositories.compactMap { repository in
+            guard seen.insert(repository.fullName.lowercased()).inserted else { return nil }
             return previous[repository.fullName]
                 ?? WatchedRepo(fullName: repository.fullName)
         }
-        repoListFetchedAt = Date()
     }
 
     /// Should this run cost a second request for its job detail?
