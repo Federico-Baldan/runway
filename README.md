@@ -497,9 +497,10 @@ overrides in force, and whether there's a token. "Nothing shows up" is as often
 a filter as a display, so it covers both.
 
 Worth knowing: the island only appears while a run is in progress, or briefly
-after one finishes. If nothing is running, a notched Mac shows the mark sitting
-in the cutout and nothing else — and with that turned off, or on a display
-without a notch, an empty menu bar is correct. Check the menu bar icon instead.
+after one finishes. If nothing is running, a Mac with a notch — real or drawn —
+shows the mark sitting in the cutout and nothing else. An empty menu bar is
+correct only with the mark turned off, or with drawn notches turned off on a
+display that has no cutout. Check the menu bar icon instead.
 
 ## Updating
 

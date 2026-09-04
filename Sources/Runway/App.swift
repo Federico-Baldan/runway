@@ -140,6 +140,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Both of these before the controller exists, not after. Its `init`
+        // takes a placement, and a placement is a reading of these two: which
+        // display is pinned, and what a display without a cutout measures as.
+        // Set them afterwards and the first placement is taken against the
+        // defaults and only corrected on the next pass — which happens to work,
+        // because assigning a preference re-runs it, and which is not a thing
+        // to be relying on.
+        NotchGeometry.pinnedDisplayID = Self.pinnedDisplayID()
+        NotchGeometry.drawsNotchOnNotchlessDisplays = Preferences.shared.drawnNotch
+
         let controller = NotchPanelController(
             model: model,
             onOpen: { [weak self] run in self?.open(run) },
@@ -147,13 +157,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onQuit: { NSApplication.shared.terminate(nil) }
         )
         panelController = controller
-        // Before the preference, not after: the preference is what makes the
-        // island move, and it must not move to whatever was pinned last time
-        // on its way to the display that is actually pinned now.
-        NotchGeometry.pinnedDisplayID = Self.pinnedDisplayID()
-        // Also before the preference: it changes what every screen measures as,
-        // so the first placement must already know the answer.
-        NotchGeometry.drawsNotchOnNotchlessDisplays = Preferences.shared.drawnNotch
         controller.screenPreference = Preferences.shared.screenPreference
         controller.showsIdleMark = Preferences.shared.idleMark
         controller.idleMarkPosition = Preferences.shared.idleMarkPosition
