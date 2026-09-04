@@ -243,8 +243,28 @@ final class IdleMarkAnimator {
     /// `release` takes the tally negative and the next real unmount stops a
     /// loop that two views are still watching. Count always, start only when
     /// there is somebody to start for.
-    func retain(reduceMotion: Bool, starting: Bool) {
+    ///
+    /// `attentive` is here rather than left to the view's `onChange` because
+    /// on this island a change of attention **is** a mount. The two `IdleMark`s
+    /// are mutually exclusive branches of one `if` — the compact rest badge,
+    /// which is never attended, and the expanded row, which always is — so
+    /// hovering does not move a value on a view, it destroys the one holding
+    /// `false` and builds the one holding `true`. `onChange(of:)` cannot fire
+    /// across that swap, and the view then wrote the flag straight onto the
+    /// animator, which is the half of `attend` that does not wake anything. So
+    /// `attend` was reachable only in theory: a mark that had dozed off could
+    /// not be woken by the one gesture written to wake it, and the eye stayed
+    /// shut — a dash under the cutout — until the display slept and reset it.
+    func retain(reduceMotion: Bool, starting: Bool, attentive: Bool) {
         mounts += 1
+        // Before `attend`, which reads it to restart a sleeper's loop, and
+        // which on a first mount would otherwise read the `false` default.
+        reduceMotionWanted = reduceMotion
+        // Never restarting from in there: if there is a loop to run it is
+        // started on the next line, and it opens with the wake `attend` just
+        // booked. If there is not — a view mounting behind a dark screen —
+        // `pendingWake` outlives the stopped loop and the next one spends it.
+        attend(attentive, restartingLoop: false)
         guard starting else { return }
         start(reduceMotion: reduceMotion)
     }
@@ -259,7 +279,17 @@ final class IdleMarkAnimator {
 
     /// Somebody arrived, or left. Looking back is the whole point of having an
     /// eye, so this is not just a flag: the gaze comes home for it.
-    func attend(_ attentive: Bool) {
+    ///
+    /// Leaving resets the doze clock as much as arriving does. Being hovered
+    /// and then let go is the most recent thing that happened to the mark, and
+    /// a mark that dozed off on the very next beat after somebody stopped
+    /// looking at it would read as having been bored by them.
+    ///
+    /// - Parameter restartingLoop: whether waking a sleeping mark may start
+    ///   the beat loop from here. `false` when the caller is about to start it
+    ///   itself, or when there is nobody to start it for — both of which are
+    ///   `retain`. The wake is owed either way; only who pays it moves.
+    func attend(_ attentive: Bool, restartingLoop: Bool = true) {
         isAttentive = attentive
         awakeSince = ContinuousClock.now
         guard attentive else { return }
@@ -273,6 +303,7 @@ final class IdleMarkAnimator {
             pendingWake = true
             beatTask?.cancel()
             beatTask = nil
+            guard restartingLoop else { return }
             start(reduceMotion: reduceMotionWanted)
             return
         }
@@ -1528,8 +1559,17 @@ struct IdleMark: View {
         .frame(width: width, height: height)
         .onAppear {
             animator.bias = position.gazeBias
-            animator.isAttentive = isAttentive
-            animator.retain(reduceMotion: reduceMotion, starting: !isSuspended)
+            // Attention goes in through `retain`, not as a bare assignment to
+            // the animator's flag. The flag is the half of arriving attentive
+            // that changes nothing, and under a cutout arriving is the only
+            // way attention ever changes at all — the `onChange` below never
+            // fires, because neither `IdleMark` the island builds has an
+            // `isAttentive` that moves. See `IdleMarkAnimator.retain`.
+            animator.retain(
+                reduceMotion: reduceMotion,
+                starting: !isSuspended,
+                attentive: isAttentive
+            )
         }
         // `release`, not `stop`. The view going away is not the mark going
         // away — on a notched Mac it is usually the hover swapping one branch
