@@ -280,9 +280,18 @@ enum SchemaVerify {
                   corpus.allSatisfy { !($0.isActive && $0.finishedAt != nil) })
             check("awaiting my approval always implies blocked on an approval",
                   corpus.allSatisfy { !$0.awaitsMyApproval || $0.isBlockedOnApproval })
+            // Informational, and deliberately not an assertion: whether any
+            // public repository happens to have a run sitting on a
+            // first-time-contributor gate right now is not a property of this
+            // app. It was two on one run of this and zero an hour later. When
+            // it is above zero the approval path has been exercised by GitHub
+            // rather than by a fixture, which is worth seeing; when it is zero
+            // nothing is wrong.
             let blocked = corpus.filter(\.isBlockedOnApproval).count
-            print("  note  \(blocked) of them are parked on a person — real "
-                  + "`action_required` gates, which no fixture can supply")
+            print("  note  \(blocked) of them are parked on a person"
+                  + (blocked > 0
+                     ? " — real `action_required` gates, which no fixture can supply"
+                     : " right now; nothing is wrong, the corpus simply moved on"))
         }
 
         print()
