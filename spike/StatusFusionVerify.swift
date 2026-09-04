@@ -98,6 +98,35 @@ enum StatusFusionVerify {
                !RunStatus.unknown.isActive && !RunStatus.unknown.isTerminal)
 
         print()
+        print("── which job the pill names ──")
+        // `isActive` answers the cadence's question — is this run going
+        // anywhere — and says yes to queued. Naming a job is a different
+        // question, and on a matrix build the two pick different jobs: every
+        // shard is created queued, and runners take them in whatever order
+        // they free up.
+        func job(_ name: String, _ status: RunStatus) -> Job {
+            Job(id: abs(name.hashValue % 100_000), name: name, status: status)
+        }
+        func run(_ jobs: [Job]) -> WorkflowRun {
+            WorkflowRun(id: 1, status: .inProgress, repository: "acme/api", jobs: jobs)
+        }
+        assert("a shard actually running outranks one still waiting for a runner",
+               run([job("shard-1", .queued), job("shard-2", .inProgress)])
+                   .firstRunningJob?.name == "shard-2")
+        assert("and order still decides between two that are both running",
+               run([job("build", .inProgress), job("test", .inProgress)])
+                   .firstRunningJob?.name == "build")
+        assert("a run that is entirely queued still names something — waiting "
+               + "for a runner is worth saying",
+               run([job("shard-1", .queued), job("shard-2", .queued)])
+                   .firstRunningJob?.name == "shard-1")
+        assert("a finished job is never named",
+               run([job("build", .success), job("test", .failure)]).firstRunningJob == nil)
+        assert("and a job parked on a person counts as active, not as running",
+               run([job("deploy", .waiting), job("build", .inProgress)])
+                   .firstRunningJob?.name == "build")
+
+        print()
         if failures == 0 {
             print("RESULT: PASS — status fusion holds for every documented pair")
         } else {

@@ -683,7 +683,23 @@ public struct WorkflowRun: Codable, Sendable, Hashable, Identifiable {
     /// `runningJobs.first` was doing this by filtering the whole list and then
     /// discarding all but its head — an array allocation per run, on every body
     /// pass of a view that redraws once a second.
-    public var firstRunningJob: Job? { jobs.first { $0.status.isActive } }
+    /// In progress first, and only then merely active.
+    ///
+    /// `isActive` is the poll cadence's question — is this run going anywhere —
+    /// and it says yes to `queued`, `pending`, `requested` and `waiting`. This
+    /// is a different question: which job to *name*. Asking the first one
+    /// answered "the first job that has not finished", and on a matrix build
+    /// those are not the same job. Every job in a matrix is created queued, and
+    /// runners pick them up in whatever order they free up — so a run with
+    /// `[shard-1 queued, shard-2 in progress]` printed `shard-1`, which had not
+    /// started, while the machine was busy with `shard-2`.
+    ///
+    /// The fallback is what keeps a run that is entirely queued from printing
+    /// nothing at all: waiting for a runner is worth saying, it just should not
+    /// outrank work actually happening.
+    public var firstRunningJob: Job? {
+        jobs.first { $0.status == .inProgress } ?? jobs.first { $0.status.isActive }
+    }
 
     /// Steps currently executing, across every job.
     public var runningSteps: [Step] { jobs.flatMap(\.runningSteps) }
