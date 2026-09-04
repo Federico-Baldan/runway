@@ -689,8 +689,10 @@ struct SettingsView: View {
 
             // Only worth offering when there is more than one screen to choose
             // between: on a single display every one of these is the same row
-            // as "Main display", said twice.
-            if pinnedDisplayOptions.count > 1 {
+            // as "Main display", said twice. Kept on screen regardless while a
+            // display is pinned, or unplugging the pinned monitor would hide
+            // the only selected row and leave the whole group looking unset.
+            if pinnedDisplayOptions.count > 1 || preferences.screenPreference == .pinned {
                 Text("Or pin it to one display")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
