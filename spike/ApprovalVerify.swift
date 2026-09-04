@@ -238,6 +238,32 @@ enum ApprovalVerify {
         assert("two of four steps settled -> 0.5", half.progress == 0.5)
         assert("no jobs yet -> 0", building.progress == 0)
 
+        // `isTerminal` is the single definition of "this step is done", and it
+        // has to be, because two things on the same row read it: `progress`
+        // fills the ring in the glyph, and `StepBar` prints the fraction beside
+        // it. `StepBar` used to count the opposite way — anything not in
+        // progress and not pending — which called all three of these finished
+        // while `progress` called them unfinished, and showed 11/16 next to a
+        // label reading 12/16.
+        func oneStep(_ status: RunStatus) -> WorkflowRun {
+            WorkflowRun(
+                id: 10, status: .inProgress, repository: "acme/web",
+                jobs: [Job(id: 1, name: "deploy", status: .inProgress, steps: [
+                    Step(name: "done", number: 1, status: .success),
+                    Step(name: "the ambiguous one", number: 2, status: status),
+                ])]
+            )
+        }
+        assert("a step waiting on a person is not finished", oneStep(.waiting).progress == 0.5)
+        assert("nor is one asking for something", oneStep(.actionRequired).progress == 0.5)
+        // The case `RunStatus.unknown` exists for: a status/conclusion pair
+        // GitHub has added and this app has not learned. It must not be
+        // optimistically counted as done.
+        assert("nor a status this build has never heard of", oneStep(.unknown).progress == 0.5)
+        assert("a genuinely finished one is", oneStep(.success).progress == 1.0)
+        assert("and so is a skipped one — settled is not the same as succeeded",
+               oneStep(.skipped).progress == 1.0)
+
         print()
         if failures == 0 {
             print("RESULT: PASS — approvals reach the person who can act on them")

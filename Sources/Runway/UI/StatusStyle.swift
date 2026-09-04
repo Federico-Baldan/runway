@@ -869,9 +869,25 @@ struct StepBar: View {
     /// hovers — and a pill draws one of these per job per run, once a second,
     /// for as long as anything is building. That is an array allocation per
     /// job per reader per frame for a number that is one integer.
+    /// `isTerminal`, which is `RunStatus`'s own answer to this and the one
+    /// `WorkflowRun.progress` already used.
+    ///
+    /// This counted the opposite way — everything that was not in progress and
+    /// not pending — and the two are not the same set. They part on `.waiting`,
+    /// `.actionRequired` and `.unknown`, all of which this called finished and
+    /// `progress` called unfinished. Both are drawn on the same row: `progress`
+    /// fills the ring in the glyph, this prints the fraction beside it, so a
+    /// job with an unrecognised step showed a ring at 11/16 next to a label
+    /// reading 12/16.
+    ///
+    /// `.unknown` is not a hypothetical, either. It is what `RunStatus.resolve`
+    /// answers for a status/conclusion pair GitHub has added and this app has
+    /// not learned yet, which is the entire reason the case exists — so the
+    /// disagreement would have arrived on its own, on somebody else's machine,
+    /// the first time Actions grew a conclusion.
     private var settled: Int {
         var count = 0
-        for step in job.steps where step.status != .inProgress && !isPending(step.status) {
+        for step in job.steps where step.status.isTerminal {
             count += 1
         }
         return count
