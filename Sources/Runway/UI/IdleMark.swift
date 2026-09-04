@@ -1434,19 +1434,6 @@ final class IdleMarkAnimator {
 /// repeating animation is the compositor kept awake for as long as the mark is
 /// on screen — which, asleep in a notch, is all night.
 struct IdleMark: View {
-    /// Height of the mark in points. The width follows from `BrandGeometry`.
-    var height: CGFloat = 16
-    /// True while the display is asleep. Stops the loop rather than slowing it.
-    var isSuspended: Bool = false
-    /// True while somebody is looking at the island: the eye looks back, opens
-    /// a little wider, and stops wandering off.
-    var isAttentive: Bool = false
-    /// Where the mark sits in its band, which is also which way it looks.
-    var position: IdleMarkPosition = .center
-    /// What colour the light is. See `IdleMarkTint` for why it is a short list.
-    var tint: IdleMarkTint = .white
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Handed in rather than owned.
     ///
     /// `@State` made the animator the view's property, and on a notched Mac
@@ -1464,6 +1451,20 @@ struct IdleMark: View {
     /// still works through a plain property — `@State` is for views that own
     /// their object's lifetime, and this one no longer does.
     var animator: IdleMarkAnimator
+
+    /// Height of the mark in points. The width follows from `BrandGeometry`.
+    var height: CGFloat = 16
+    /// True while the display is asleep. Stops the loop rather than slowing it.
+    var isSuspended: Bool = false
+    /// True while somebody is looking at the island: the eye looks back, opens
+    /// a little wider, and stops wandering off.
+    var isAttentive: Bool = false
+    /// Where the mark sits in its band, which is also which way it looks.
+    var position: IdleMarkPosition = .center
+    /// What colour the light is. See `IdleMarkTint` for why it is a short list.
+    var tint: IdleMarkTint = .white
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var width: CGFloat { (height * BrandGeometry.aspect).rounded() }
     private var eye: CGFloat { (height * BrandGeometry.eyeRatio).rounded() }
