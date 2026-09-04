@@ -172,8 +172,43 @@ enum PollConcurrencyVerify {
         }
 
         print()
+        print("── a poll whose configuration changed under it stands down ──")
+        // `configurationGeneration` is the other half of the re-entrancy work,
+        // and the half with a crash in its history: `for index in
+        // watched.indices` materialised a range, an await handed the actor to
+        // `configure(_:)`, which set `watched = []`, and the resumption indexed
+        // an emptied array. The snapshot fixed the crash; the generation counter
+        // fixes what remained, which is quieter — a poll that finished under
+        // the old settings writing the old scope's runs onto the island for a
+        // cycle, seconds after somebody changed them.
+        //
+        // `ReentrancyVerify` covers `merged()`, the pure half. The discard
+        // itself needs the actor and a poll caught in flight.
+        do {
+            let monitor = makeMonitor()
+            await configure(monitor)
+            SlowGitHub.reset(delay: 0.4)
+
+            let polling = Task { await monitor.refreshNow() }
+            try? await Task.sleep(for: .milliseconds(120))
+
+            // Same shape as picking a different repository in Settings.
+            await monitor.configure(
+                repoScope: .explicit, repoLimit: 10, organizations: [],
+                explicitRepositories: ["acme/other"], actorScope: .everyone,
+                watchedActors: [], approvalsFromOthers: false, currentUser: "alice")
+
+            await polling.value
+            let state = await monitor.currentState()
+            assert("the in-flight poll's runs never reached the island (got \(state.runs.count))",
+                   state.runs.isEmpty)
+            assert("and its repository list did not either",
+                   !state.repositories.contains("acme/api"))
+        }
+
+        print()
         print(failures == 0
-              ? "RESULT: PASS — one poll at a time, and no refresh is lost"
+              ? "RESULT: PASS — one poll at a time, no refresh lost, no stale scope drawn"
               : "RESULT: FAIL — \(failures)")
         exit(failures == 0 ? 0 : 1)
     }
