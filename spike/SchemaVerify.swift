@@ -123,6 +123,14 @@ enum SchemaVerify {
         var decoded = 0
         var dateShapes = Set<String>()
         var corpus: [WorkflowRun] = []
+        // The first repository's response, kept so the payload-retention check
+        // can ask a second question of it without paying for it twice. Sixty
+        // requests an hour is the whole unauthenticated budget, and re-fetching
+        // a body already in hand is exactly the waste this app exists to avoid.
+        // The conditional-request check deliberately does not reuse it — see
+        // the note there.
+        var firstPath: String?
+        var firstBody: Data?
 
         /// Every ISO-looking string in the payload, with its digits masked, so
         /// the *shapes* GitHub sends are visible rather than the values.
@@ -138,9 +146,13 @@ enum SchemaVerify {
         print("── workflow runs, decoded by the real types ──")
         var sampleRunIDs: [(String, Int)] = []
         for repository in repositories {
-            guard let data = get(
-                "/repos/\(repository)/actions/runs?per_page=30&exclude_pull_requests=true"
-            ) else { continue }
+            let path = "/repos/\(repository)/actions/runs?per_page=30&exclude_pull_requests=true"
+            let outcome = probe(path)
+            guard outcome.status == 200, let data = outcome.body else { continue }
+            if firstBody == nil {
+                firstPath = path
+                firstBody = data
+            }
             collectDateShapes(data)
             do {
                 let payload = try makeDecoder().decode(WorkflowRunsPayload.self, from: data)
@@ -200,6 +212,41 @@ enum SchemaVerify {
         }
 
         print()
+        print("── invariants the views take for granted, on runs nobody wrote for a test ──")
+        // Fixtures only ever contain the shapes somebody thought of. These are
+        // the properties the island assumes without checking: `ForEach` needs
+        // distinct identities, the progress ring needs a fraction, the elapsed
+        // counter needs a non-negative duration, and the emit gate needs a
+        // signature that exists.
+        if corpus.isEmpty {
+            print("  skip  no corpus to check")
+        } else {
+            let n = corpus.count
+            func check(_ label: String, _ holds: Bool) {
+                if holds { print("  ok    \(label)") }
+                else { print("  FAIL  \(label)"); problems += 1 }
+            }
+            print("  \(n) runs from four repositories")
+            // Identity carries the repository, which these all share per fetch,
+            // so this is really "GitHub did not hand back the same run twice".
+            check("no run id and attempt pair repeats within a repository",
+                  Set(corpus.map { "\($0.id)/\($0.runAttempt)" }).count == n)
+            check("progress is a fraction, never outside 0...1",
+                  corpus.allSatisfy { (0.0...1.0).contains($0.progress) })
+            check("no duration is negative — updated_at never precedes the start",
+                  corpus.allSatisfy { ($0.duration ?? 0) >= 0 })
+            check("every run produces a signature for the emit gate to compare",
+                  corpus.allSatisfy { !$0.signature.isEmpty })
+            check("a run is never both active and finished",
+                  corpus.allSatisfy { !($0.isActive && $0.finishedAt != nil) })
+            check("awaiting my approval always implies blocked on an approval",
+                  corpus.allSatisfy { !$0.awaitsMyApproval || $0.isBlockedOnApproval })
+            let blocked = corpus.filter(\.isBlockedOnApproval).count
+            print("  note  \(blocked) of them are parked on a person — real "
+                  + "`action_required` gates, which no fixture can supply")
+        }
+
+        print()
         print("── how much of a payload this app actually keeps ──")
         // `ETagStore.memoise` releases the raw JSON once it has been decoded,
         // on the claim that the decoded value is far smaller. That is a claim
@@ -207,10 +254,8 @@ enum SchemaVerify {
         // trusting: a run carries a whole `repository` object, a
         // `head_repository`, a `head_commit` and a wall of `*_url` links, and
         // Runway decodes none of them.
-        if let repository = repositories.first {
-            let path = "/repos/\(repository)/actions/runs?per_page=30&exclude_pull_requests=true"
-            if let data = get(path),
-               let payload = try? makeDecoder().decode(WorkflowRunsPayload.self, from: data) {
+        if let data = firstBody,
+           let payload = try? makeDecoder().decode(WorkflowRunsPayload.self, from: data) {
                 // A floor on what the decoded runs cost: every string this app
                 // keeps, plus a machine word for each of the fixed-width
                 // fields. It cannot be exact from in here, but it is the right
@@ -234,7 +279,6 @@ enum SchemaVerify {
                     print("  note  the payload has slimmed down — ETagStore.memoise's note "
                           + "about proportions is out of date")
                 }
-            }
         }
 
         print()
@@ -251,10 +295,15 @@ enum SchemaVerify {
         // If-None-Match, nothing would break. The app would keep working and
         // quietly burn twenty times the budget until it was throttled, which is
         // the kind of failure that gets diagnosed as "GitHub is flaky".
-        if let repository = repositories.first {
-            let path = "/repos/\(repository)/actions/runs?per_page=30&exclude_pull_requests=true"
+        if let path = firstPath {
+            // Fetched again rather than reusing the body from the pass above,
+            // and the reason is the budget note at the end of this block: it
+            // subtracts one reading of `x-ratelimit-remaining` from another, so
+            // the two have to be adjacent. Reusing the earlier response would
+            // put eight other requests between them and report the 304 as
+            // having cost nine.
             let first = probe(path)
-            if first.status == 200, let etag = first.etag {
+            if let etag = first.etag {
                 print("  ok    GitHub issues an ETag on the runs endpoint: \(etag.prefix(24))…")
                 let second = probe(path, ifNoneMatch: etag)
                 if second.status == 304 {
@@ -276,7 +325,7 @@ enum SchemaVerify {
                           + "request(s) — the exemption is authenticated-only, which is why "
                           + "an empty token must never reach the wire")
                 }
-            } else if first.status == 200 {
+            } else {
                 print("  FAIL  no ETag on the runs endpoint — the conditional cache has "
                       + "nothing to send and every poll is billed in full")
                 problems += 1
