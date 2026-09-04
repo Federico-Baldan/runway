@@ -306,7 +306,23 @@ public actor RunMonitor {
             approvalsFromOthers: includeApprovalsFromOthers,
             dismissed: dismissed
         )
-        emitIfChanged()
+        // `force`, for the same reason `reapplyVisibility` forces: a
+        // configuration change is a state change the emit gate cannot see.
+        //
+        // `emitSignature` is built from the runs, the repository count, the
+        // known actors, the rate limit and whether the loop is running — and a
+        // filter change need move none of them. Swapping "Only my runs" for a
+        // one-name list resolves to the same runs; on an account with nothing
+        // building, every filter resolves to none at all. So the gate held the
+        // frame, no state reached the main actor, and nothing downstream was
+        // told anything had happened.
+        //
+        // That is invisible on the island, which draws runs and had none to
+        // redraw. It is not invisible in the menu bar, whose scope line reads
+        // the filter out of `Preferences` directly — so it went on naming
+        // whoever it was built with until some unrelated poll happened to move
+        // the run count. See `StatusItemController.lastActorScope`.
+        emitIfChanged(force: true)
     }
 
     // MARK: - Dismissal

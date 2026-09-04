@@ -43,6 +43,17 @@ public final class StatusItemController {
     /// the mood stays `.error`, moves neither the mood nor the run count. The
     /// menu simply kept showing the old sentence.
     private var lastRepositoryCount: Int = -1
+    /// The other half of that same line, and the half the fix above missed.
+    ///
+    /// `scopeTitle` prints *who* is watched as well as how many repositories,
+    /// and the actor filter is the one input to this menu that lives entirely
+    /// in `Preferences` — no run has to move for it to change. Swapping "Only
+    /// my runs" for a one-name list resolves to exactly the same runs, so
+    /// nothing else in the gate below stirs; and on an account with nothing
+    /// building, every filter resolves to no runs at all, which is the common
+    /// case rather than the corner one. Either way the menu went on naming
+    /// whoever it was built with.
+    private var lastActorScope: String?
     private var lastError: String?
     /// And so does where the runs are going. A deploy target lands with the
     /// job detail, one request after the run itself, and moves neither the
@@ -354,13 +365,17 @@ public final class StatusItemController {
             .compactMap(\.deployTarget?.name)
             .joined(separator: ",")
         let hasToken = TokenCache.shared.token() != nil
+        // Everyone resolves to an empty login set, which is a distinct value
+        // here rather than a missing one — "" is a filter that hides nobody.
+        let actorScope = Preferences.shared.actorFilter.logins.sorted().joined(separator: ",")
         guard mood != lastMood || count != lastCount || update != lastUpdate
                 || approvals != lastApprovals || blocked != lastBlocked
                 || repositories != lastRepositoryCount
                 || error != lastError || environments != lastEnvironments
-                || hasToken != lastHasToken else { return }
+                || hasToken != lastHasToken || actorScope != lastActorScope else { return }
         lastEnvironments = environments
         lastHasToken = hasToken
+        lastActorScope = actorScope
         lastUpdate = update
         lastMood = mood
         lastCount = count
