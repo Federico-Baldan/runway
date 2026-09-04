@@ -32,8 +32,12 @@ import FoundationNetworking
 @main
 enum SchemaVerify {
     /// Public repositories that run a lot of Actions, so there is always
-    /// something recent to decode.
-    static let repositories = ["Homebrew/brew", "swiftlang/swift"]
+    /// something recent to decode — and none of which deploys anywhere through
+    /// these public workflows, which is what makes them useful twice. See the
+    /// classifier section in `main`.
+    static let repositories = [
+        "Homebrew/brew", "swiftlang/swift", "vercel/next.js", "grafana/grafana",
+    ]
 
     /// The decoder `GitHubClient` builds, reproduced exactly — including the
     /// date strategy, which is the half that throws rather than degrades.
@@ -101,6 +105,7 @@ enum SchemaVerify {
         var problems = 0
         var decoded = 0
         var dateShapes = Set<String>()
+        var corpus: [WorkflowRun] = []
 
         /// Every ISO-looking string in the payload, with its digits masked, so
         /// the *shapes* GitHub sends are visible rather than the values.
@@ -143,6 +148,7 @@ enum SchemaVerify {
                 if let first = payload.workflowRuns.first {
                     sampleRunIDs.append((repository, first.id))
                 }
+                corpus.append(contentsOf: payload.workflowRuns)
             } catch {
                 print("  FAIL  \(repository) did not decode: \(error)")
                 problems += 1
@@ -172,6 +178,42 @@ enum SchemaVerify {
                 }
             } catch {
                 print("  FAIL  \(repository) #\(runID) jobs did not decode: \(error)")
+                problems += 1
+            }
+        }
+
+        print()
+        print("── what the deploy classifier makes of real workflow names ──")
+        // The classifier guesses an environment from names people chose, and
+        // its worst failure is being loud: `DeployClassifier` says outright
+        // that "this is going to production" is a sentence a status app had
+        // better not be casually wrong about. Fixtures cannot catch a
+        // vocabulary that has drifted too broad — only names nobody wrote for
+        // this test can.
+        //
+        // None of the repositories above deploys through these public
+        // workflows, so a production label on any of them means a word has been
+        // added that is far too common. `canary` is the standing example of the
+        // trap: it is a real deployment term and it is also next.js's default
+        // branch, so admitting it would put a deploy chip on every run in that
+        // repository.
+        var labels: [String] = []
+        var production = 0
+        for run in corpus {
+            guard let target = run.stampingDeployTarget().deployTarget else { continue }
+            labels.append("[\(target.tier)] \(target.name) via .\(target.source) — \(run.name ?? "?")")
+            if target.tier == .production { production += 1 }
+        }
+        if corpus.isEmpty {
+            print("  skip  no runs to classify")
+        } else {
+            print("  \(labels.count) of \(corpus.count) runs were given a deploy label")
+            for label in Set(labels).sorted().prefix(8) { print("    \(label)") }
+            if production == 0 {
+                print("  ok    nothing in a corpus of ordinary CI was called production")
+            } else {
+                print("  FAIL  \(production) run(s) labelled production — the vocabulary has "
+                      + "drifted broad enough to be wrong about the one thing that matters")
                 problems += 1
             }
         }
