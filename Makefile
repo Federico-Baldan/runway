@@ -99,6 +99,7 @@ $(SPIKEOUT):
 spikes: spikes-offline
 	@echo "── auth ──"   && $(MAKE) -s spike-run SPIKE=AuthSpike  SRC="$(API)/GitHubClient.swift $(API)/Models.swift $(API)/Approvals.swift $(API)/DeployTarget.swift $(API)/RunScope.swift $(API)/ETagStore.swift Sources/Runway/Auth/Keychain.swift" ARGS=check
 	@echo "── runs ──"   && $(MAKE) -s spike-run SPIKE=RunsSpike  SRC="$(API)/GitHubClient.swift $(API)/Models.swift $(API)/Approvals.swift $(API)/DeployTarget.swift $(API)/RunScope.swift $(API)/ETagStore.swift Sources/Runway/Auth/Keychain.swift"
+	@echo "── schema ──" && $(MAKE) -s spike-run SPIKE=SchemaVerify SRC="$(API)/GitHubClient.swift $(API)/Models.swift $(API)/Approvals.swift $(API)/DeployTarget.swift $(API)/RunScope.swift $(API)/ETagStore.swift Sources/Runway/Auth/Keychain.swift"
 
 spikes-offline:
 	@echo "── status ──"    && $(MAKE) -s spike-run SPIKE=StatusFusionVerify   SRC="$(API)/Models.swift $(API)/Approvals.swift $(API)/DeployTarget.swift"
