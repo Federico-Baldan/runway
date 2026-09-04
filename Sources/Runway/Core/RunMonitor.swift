@@ -630,8 +630,12 @@ public actor RunMonitor {
             state.error = ssoBlocked ?? partialResultsWarning(sso)
         } catch let error as GitHubError {
             // A hard failure (bad token, missing permission) must not be
-            // retried on a backoff curve — it will never start working.
-            failureCount = error.isRetryable ? failureCount + 1 : 0
+            // retried on a backoff curve — it will never start working, and
+            // repeating it is free. A response this client could not decode is
+            // neither of those things: it already cost a request. See
+            // `GitHubError.warrantsBackoff` for why that is a separate question
+            // from `isRetryable`, which two other call sites read differently.
+            failureCount = error.warrantsBackoff ? failureCount + 1 : 0
             state.error = error.errorDescription
             state.rateLimit = await client.currentRateLimit()
         } catch {

@@ -212,6 +212,28 @@ enum CadenceVerify {
                !RunMonitor.shouldFetchApprovals(for: run(14, .inProgress)))
 
         print()
+        print("── which failures buy a backoff, and which are free to repeat ──")
+        // `isRetryable` answers "worth another attempt" and is read by
+        // `attachJobs` and `reviewHistory` to decide whether to keep cached
+        // detail. `warrantsBackoff` answers "did this already cost a request".
+        // They differ on exactly one case, and that case is the reason the
+        // second question exists.
+        assert("a decode failure does NOT count as retryable — a job list this "
+               + "client cannot parse must not fail the whole poll",
+               !GitHubError.decoding("x").isRetryable)
+        assert("but it DOES buy a backoff: it arrived after a paid round trip, "
+               + "and repeating it at full cadence spends the budget to fail again",
+               GitHubError.decoding("x").warrantsBackoff)
+        assert("a missing token is free to repeat — it never reaches the wire",
+               !GitHubError.noToken.warrantsBackoff)
+        assert("so is a permission the user has to go and grant",
+               !GitHubError.forbidden("x").warrantsBackoff)
+        assert("and so is SSO, which no amount of waiting authorizes",
+               !GitHubError.singleSignOnRequired(authorizeURL: nil).warrantsBackoff)
+        assert("the network being down still backs off", GitHubError.network("x").warrantsBackoff)
+        assert("and so does a rate limit", GitHubError.rateLimited(retryAfter: nil).warrantsBackoff)
+
+        print()
         if failures == 0 {
             print("RESULT: PASS — cadence precedence holds on every combination checked")
         } else {

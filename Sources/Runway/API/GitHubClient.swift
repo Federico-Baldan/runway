@@ -52,6 +52,35 @@ public enum GitHubError: Error, LocalizedError, Sendable, Equatable {
             return false
         }
     }
+
+    /// Whether the poll loop should slow down after this.
+    ///
+    /// Deliberately a second question rather than a wider answer to the first.
+    /// `isRetryable` means *is this worth another attempt*, and two other
+    /// places read it that way: `attachJobs` keeps a run's cached detail unless
+    /// the fault was retryable, and `reviewHistory` caches a refusal unless it
+    /// was. Widening that one to cover `.decoding` would turn a job list this
+    /// client cannot parse into a failure of the entire poll — the opposite of
+    /// what those call sites are for.
+    ///
+    /// This one means *did this already cost a request*. `.decoding` is the
+    /// only failure that arrives **after** a successful, rate-limited round
+    /// trip: the budget is spent, the answer is unusable, and repeating it five
+    /// seconds later changes neither. Counted as a hard stop it reset
+    /// `failureCount` to zero, so the loop kept its normal cadence and re-spent
+    /// a full round of requests every tick to fail identically — on twenty
+    /// repositories at the active cadence that is 14,400 requests an hour
+    /// against a budget of 5,000. The app rate-limited itself within twenty
+    /// minutes and only then began backing off, having spent the user's entire
+    /// hour to learn nothing.
+    ///
+    /// Every other non-retryable case is cheap to repeat: `.noToken` never
+    /// reaches the wire, and the rest are answers somebody has to go and act
+    /// on, which no amount of waiting will do for them.
+    public var warrantsBackoff: Bool {
+        if case .decoding = self { return true }
+        return isRetryable
+    }
 }
 
 /// A response that may have been served from the conditional cache.
