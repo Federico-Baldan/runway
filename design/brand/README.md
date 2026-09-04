@@ -90,7 +90,8 @@ conversione. Licenza SIL OFL, ridistribuibile.
 
 ## File | File | Uso |
 |---|---|
-| `appicon-large.svg` | Riferimento del taglio ≥ 128 pt, e testata del README |
+| `appicon-large.svg` | Riferimento del taglio ≥ 128 pt |
+| `appicon-live.svg` | Testata del README: lo stesso taglio, con il marchio a riposo che si anima |
 | `favicon.svg` | Favicon 16/32 px — il taglio ≤ 16 pt |
 | `symbol-notch.svg` | Simbolo autonomo, su fondo chiaro |
 | `symbol-notch-reverse.svg` | Simbolo autonomo, su fondo scuro |
@@ -115,6 +116,33 @@ GitHub cambia tema da solo, quindi servono entrambe le versioni:
        src="design/brand/lockup-horizontal-light.svg">
 </picture>
 ```
+
+## La testata animata
+
+`appicon-live.svg` è `appicon-large.svg` con dentro l'unica cosa che l'app fa
+davvero quando non c'è niente in coda: il marchio a riposo di `IdleMark.swift`.
+Non è un'animazione inventata per il README — sono i beat dell'`IdleMarkAnimator`
+con le sue durate e le sue curve, in un ciclo di 9 s: `blink` (palpebra giù
+easeIn 60 ms, su easeOut 110 ms), due saccadi balistiche da 45-70 ms con
+fissazione in mezzo e la palpebra che scende insieme allo sguardo verso il
+basso, il blink sul ritorno a centro, `squint`, e `drowse` — la palpebra che
+cala sotto il proprio peso in 900 ms e si riprende.
+
+Il punto a riposo resta esattamente il cerchio del taglio grande: r 0.10, fermo
+al centro della tacca. L'escursione dello sguardo è la `travel` di `IdleMark`
+misurata sulla tacca (56 × 42, pupilla 20): 12.12 in orizzontale, 5.96 in
+verticale. La palpebra è la pupilla schiacciata attorno al proprio centro con
+il pavimento a 0.14 della vista, ottenuta qui con due rettangoli neri che
+scorrono sopra e sotto — solo `translate`, così regge su Blink, WebKit e Gecko.
+
+`prefers-reduced-motion` ferma il ciclo e lascia il marchio aperto, come
+`reduceMotion` ferma il loop nell'app.
+
+**Non serve a macOS.** Un `.icns` è statico per costruzione e il Dock non
+riproduce icone animate: l'unico modo di muovere un'icona lì è farlo a runtime
+dal codice (`NSDockTile.contentView` + `display()`, o un `NSDockTilePlugIn` per
+sopravvivere alla chiusura). `appicon-live.svg` è quindi un asset per il README
+e per il web; l'icona dell'app resta quella di `scripts/make-icon.swift`.
 
 ## Punti aperti
 

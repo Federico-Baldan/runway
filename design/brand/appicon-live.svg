@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="512" height="512" role="img">
+  <title>Runway</title>
+  <!--
+    The resting mark, as the app actually animates it when nothing is running:
+    IdleMarkAnimator's own beats, with its own durations and curves.
+
+      blink    lid shuts easeIn 60ms, holds 75ms, opens easeOut 110ms
+      look     two ballistic saccades, easeOut 45-70ms, fixations 220-900ms,
+               the lid riding down with the downward one, a blink on the way home
+      squint   lid to half, pupil a hair narrower, held
+      drowse   lid sinks under its own weight over 900ms, then catches itself
+
+    Gaze travel is IdleMark.travel measured against the notch: the shell is
+    56 x 42 and the pupil 20, so 12.12 across and 5.96 up and down. The lid is
+    the pupil squashed about its own centre, floored at 0.14, which is the view's
+    `1 - lid * 0.86`. The pupil at rest is the icon's dot, unchanged.
+  -->
+  <defs>
+    <linearGradient id="rwBody" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2B303B"/><stop offset="1" stop-color="#0D0F14"/>
+    </linearGradient>
+    <clipPath id="rwNotch">
+      <path d="M22,0 H78 V21 a21,21 0 0 1 -21,21 H43 a21,21 0 0 1 -21,-21 Z"/>
+    </clipPath>
+    <filter id="rwBloom" x="-90%" y="-90%" width="280%" height="280%">
+      <feDropShadow dx="0" dy="0" stdDeviation="2.9" flood-color="#33D16B" flood-opacity=".5"/>
+    </filter>
+  </defs>
+
+  <style>
+    /* SwiftUI's own curves, so the mark moves here the way it moves up there */
+    .eye   { animation: rwGaze 9s linear infinite }
+    .pupil { animation: rwPupil 9s linear infinite }
+    .lid   { animation: rwLid 9s linear infinite }
+
+    @keyframes rwGaze {
+      0%, 18.889%      { transform: translate(0,0);            animation-timing-function: cubic-bezier(0,0,.58,1) }
+      19.556%, 25.333% { transform: translate(-9.45px,0);      animation-timing-function: cubic-bezier(0,0,.58,1) }
+      25.944%, 33.056% { transform: translate(7.51px,3.28px);  animation-timing-function: cubic-bezier(0,0,.58,1) }
+      33.722%, 62.889% { transform: translate(0,0);            animation-timing-function: cubic-bezier(.42,0,.58,1) }
+      72.889%, 80.667% { transform: translate(0,2.09px);       animation-timing-function: cubic-bezier(0,0,.58,1) }
+      81.667%, 100%    { transform: translate(0,0) }
+    }
+
+    /* the lid: half the pupil's visible height, mirrored for the lower one */
+    @keyframes rwLid {
+      0%, 10%          { transform: translateY(-10px);    animation-timing-function: cubic-bezier(.42,0,1,1) }
+      10.667%, 11.5%   { transform: translateY(-1.4px);   animation-timing-function: cubic-bezier(0,0,.58,1) }
+      12.722%, 25.333% { transform: translateY(-10px);    animation-timing-function: cubic-bezier(0,0,.58,1) }
+      25.944%, 33.056% { transform: translateY(-8.11px);  animation-timing-function: cubic-bezier(0,0,.58,1) }
+      33.722%, 34.5%   { transform: translateY(-10px);    animation-timing-function: cubic-bezier(.42,0,1,1) }
+      35.167%, 36%     { transform: translateY(-1.4px);   animation-timing-function: cubic-bezier(0,0,.58,1) }
+      37.222%, 45%     { transform: translateY(-10px);    animation-timing-function: cubic-bezier(0,0,.58,1) }
+      46.444%, 52.222% { transform: translateY(-5.13px);  animation-timing-function: cubic-bezier(0,0,.58,1) }
+      54%, 62.889%     { transform: translateY(-10px);    animation-timing-function: cubic-bezier(.42,0,.58,1) }
+      72.889%, 80.667% { transform: translateY(-4.29px);  animation-timing-function: cubic-bezier(0,0,.58,1) }
+      81.667%, 82.667% { transform: translateY(-10px);    animation-timing-function: cubic-bezier(.42,0,1,1) }
+      83.333%, 84.167% { transform: translateY(-1.4px);   animation-timing-function: cubic-bezier(0,0,.58,1) }
+      85.389%, 100%    { transform: translateY(-10px) }
+    }
+
+    /* dilation. Only the squint and the drowse ask for it */
+    @keyframes rwPupil {
+      0%, 45%          { r: 10px;  animation-timing-function: cubic-bezier(0,0,.58,1) }
+      46.444%, 52.222% { r: 9px;   animation-timing-function: cubic-bezier(0,0,.58,1) }
+      54%, 62.889%     { r: 10px;  animation-timing-function: cubic-bezier(.42,0,.58,1) }
+      72.889%, 80.667% { r: 9.2px; animation-timing-function: cubic-bezier(0,0,.58,1) }
+      81.667%, 100%    { r: 10px }
+    }
+
+    /* Reduce Motion stops the loop in the app; here it leaves the mark open */
+    @media (prefers-reduced-motion: reduce) {
+      .eye, .pupil, .lid { animation: none }
+    }
+  </style>
+
+  <rect width="100" height="100" rx="22.37" fill="url(#rwBody)"/>
+  <path d="M22,0 H78 V21 a21,21 0 0 1 -21,21 H43 a21,21 0 0 1 -21,-21 Z" fill="#000000"/>
+
+  <g clip-path="url(#rwNotch)">
+    <g transform="translate(50 21)">
+      <g class="eye">
+        <circle class="pupil" r="10" fill="#33D16B" filter="url(#rwBloom)"/>
+        <g class="lid" transform="translate(0 -10)"><rect x="-44" y="-72" width="88" height="72"/></g>
+        <g transform="scale(1 -1)">
+          <g class="lid" transform="translate(0 -10)"><rect x="-44" y="-72" width="88" height="72"/></g>
+        </g>
+      </g>
+    </g>
+  </g>
+</svg>

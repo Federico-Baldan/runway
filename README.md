@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="design/brand/appicon-large.svg" alt="" width="96">
+  <img src="design/brand/appicon-live.svg" alt="" width="96">
 </p>
 
 # Runway
