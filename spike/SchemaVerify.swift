@@ -60,12 +60,27 @@ enum SchemaVerify {
     /// session owns a connection pool worth reusing across five requests.
     static let session = URLSession(configuration: .ephemeral)
 
+    /// Set once GitHub has said the budget is spent. Every later request would
+    /// get the same 403 and print the same line, which is noise and, more to
+    /// the point, is the app's own rule: a refusal that will not change is not
+    /// worth repeating.
+    nonisolated(unsafe) static var budgetSpent = false
+
     /// A body, and only when GitHub actually sent one. A rate-limit response
     /// carries a JSON error that would otherwise be handed to the decoder and
     /// reported as a schema failure, which is the opposite of true.
     static func get(_ path: String) -> Data? {
         let outcome = probe(path)
         return outcome.status == 200 ? outcome.body : nil
+    }
+
+    /// `owner/repo (runs)` rather than the whole query string, which is noise
+    /// in a skip line nobody asked to read.
+    static func endpointName(_ path: String) -> String {
+        let parts = path.split(separator: "/")
+        guard parts.count >= 3 else { return path }
+        let kind = path.contains("/jobs") ? "jobs" : "runs"
+        return "\(parts[1])/\(parts[2]) (\(kind))"
     }
 
     /// Status, body and ETag, for the checks that care about the envelope
@@ -75,6 +90,7 @@ enum SchemaVerify {
         guard let url = URL(string: "https://api.github.com" + path) else {
             return (0, nil, nil, nil)
         }
+        guard !budgetSpent else { return (429, nil, nil, 0) }
         var request = URLRequest(url: url)
         if let ifNoneMatch { request.setValue(ifNoneMatch, forHTTPHeaderField: "If-None-Match") }
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
@@ -93,6 +109,7 @@ enum SchemaVerify {
             var status = 0
             var etag: String?
             var remaining: Int?
+            var resetsAt: Double?
         }
         let result = Result()
         let done = DispatchSemaphore(value: 0)
@@ -103,6 +120,7 @@ enum SchemaVerify {
             result.payload = data
             result.etag = http?.value(forHTTPHeaderField: "ETag")
             result.remaining = http?.value(forHTTPHeaderField: "x-ratelimit-remaining").flatMap(Int.init)
+            result.resetsAt = http?.value(forHTTPHeaderField: "x-ratelimit-reset").flatMap(Double.init)
             result.lock.unlock()
             done.signal()
         }.resume()
@@ -113,7 +131,26 @@ enum SchemaVerify {
         result.lock.unlock()
 
         if outcome.0 != 200 && outcome.0 != 304 {
-            print("  skip  \(path) -> HTTP \(outcome.0) (rate limit or no network)")
+            // Say which. "Rate limit or no network" sends people looking at
+            // their wifi when the answer is a number GitHub already told us,
+            // and the difference decides whether waiting helps.
+            result.lock.lock()
+            let remaining = result.remaining
+            let resetsAt = result.resetsAt
+            result.lock.unlock()
+            if outcome.0 == 0 {
+                print("  skip  \(endpointName(path)) -> no response (offline, or GitHub "
+                      + "unreachable)")
+            } else if let remaining, remaining == 0 {
+                let minutes = resetsAt.map { max(0, Int(($0 - Date().timeIntervalSince1970) / 60)) }
+                let when = minutes.map { "\($0) min" } ?? "shortly"
+                print("  skip  \(endpointName(path)) -> HTTP \(outcome.0): the "
+                      + "unauthenticated budget is spent (0 of 60), back in \(when). "
+                      + "Nothing else will be asked.")
+                budgetSpent = true
+            } else {
+                print("  skip  \(endpointName(path)) -> HTTP \(outcome.0)")
+            }
         }
         return outcome
     }
@@ -186,7 +223,9 @@ enum SchemaVerify {
 
         print()
         print("── jobs and steps, which is the deeper half of the schema ──")
-        for (repository, runID) in sampleRunIDs {
+        // Two is enough to exercise the jobs schema. Four costs two more
+        // requests out of sixty for no coverage the first two did not give.
+        for (repository, runID) in sampleRunIDs.prefix(2) {
             guard let data = get(
                 "/repos/\(repository)/actions/runs/\(runID)/jobs?filter=latest&per_page=50"
             ) else { continue }
@@ -382,7 +421,10 @@ enum SchemaVerify {
 
         print()
         if decoded == 0 {
-            print("RESULT: SKIP — nothing came back to decode (rate limit or no network)")
+            print(budgetSpent
+                  ? "RESULT: SKIP — the unauthenticated budget is spent, so nothing was "
+                    + "checked. This is not a failure; try again after the reset."
+                  : "RESULT: SKIP — nothing came back to decode (GitHub unreachable)")
             exit(0)
         }
         if problems == 0 {
