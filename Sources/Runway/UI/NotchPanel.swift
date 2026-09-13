@@ -96,6 +96,12 @@ public final class NotchPanelController {
         didSet { model.idleMarkTint = idleMarkTint }
     }
 
+    /// Whether that mark's pupil leans a gradient into its own gaze. Straight
+    /// through to the model, for the same reason the tint is.
+    public var idleMarkGradient: Bool = true {
+        didSet { model.idleMarkGradient = idleMarkGradient }
+    }
+
     private var currentPlacement: NotchGeometry.Placement?
     /// The display the panel is currently on, so a move between screens can be
     /// told apart from a resize on the one it is already on.

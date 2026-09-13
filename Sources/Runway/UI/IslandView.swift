@@ -168,7 +168,8 @@ struct IslandView: View {
                     height: 16,
                     isSuspended: model.isSuspended,
                     position: model.idleMarkPosition,
-                    tint: model.idleMarkTint
+                    tint: model.idleMarkTint,
+                    gradient: model.idleMarkGradient
                 )
                 .transition(.opacity)
             }
@@ -269,7 +270,8 @@ struct IslandView: View {
                             isSuspended: model.isSuspended,
                             isAttentive: true,
                             position: model.idleMarkPosition,
-                            tint: model.idleMarkTint
+                            tint: model.idleMarkTint,
+                            gradient: model.idleMarkGradient
                         )
                         .frame(width: 18)
                         Text("nothing running")

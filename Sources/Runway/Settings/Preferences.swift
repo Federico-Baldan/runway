@@ -96,6 +96,7 @@ public final class Preferences {
         static let idleMark = "island.idleMark"
         static let idleMarkPosition = "island.idleMarkPosition"
         static let idleMarkTint = "island.idleMarkTint"
+        static let idleMarkGradient = "island.idleMarkGradient"
         static let approvalNotifications = "notify.approvals"
         static let approvalsFromOthers = "actors.approvalsFromOthers"
     }
@@ -167,6 +168,9 @@ public final class Preferences {
         self.idleMarkTint = IdleMarkTint(
             rawValue: defaults.string(forKey: Key.idleMarkTint) ?? ""
         ) ?? .white
+        // On by default: the gradient is what the pupil has shipped with since
+        // it was added, so an existing install should not see it vanish.
+        self.idleMarkGradient = defaults.object(forKey: Key.idleMarkGradient) as? Bool ?? true
         self.approvalNotifications = (defaults.object(forKey: Key.approvalNotifications) as? Bool)
             ?? EnvironmentDefault.bool(EnvironmentDefault.notifyApprovals)
             ?? true
@@ -299,6 +303,12 @@ public final class Preferences {
     /// the choice is a short list of hues the island already uses.
     public var idleMarkTint: IdleMarkTint {
         didSet { defaults.set(idleMarkTint.rawValue, forKey: Key.idleMarkTint) }
+    }
+
+    /// Whether the pupil's fill leans a gradient into its own gaze, or stays a
+    /// flat fill. See `IdleMark.pupilGradient` for what the gradient does.
+    public var idleMarkGradient: Bool {
+        didSet { defaults.set(idleMarkGradient, forKey: Key.idleMarkGradient) }
     }
 
     /// Haptic feedback on run transitions.

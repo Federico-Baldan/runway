@@ -89,6 +89,11 @@ public final class IslandModel {
     /// from the preference, same as `idleMarkPosition`.
     public var idleMarkTint: IdleMarkTint = .white
 
+    /// Whether that mark's pupil leans a gradient into its own gaze, or stays
+    /// a flat fill. Written by `NotchPanelController` from the preference,
+    /// same as `idleMarkTint`.
+    public var idleMarkGradient: Bool = true
+
     /// Drives the enter/exit morph.
     public var isOnScreen = false
 

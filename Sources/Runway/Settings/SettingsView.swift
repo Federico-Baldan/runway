@@ -782,6 +782,18 @@ struct SettingsView: View {
             .help("The light in the resting mark. The menu bar icon is a "
                   + "template image, so macOS keeps tinting that one.")
 
+            Toggle(isOn: $preferences.idleMarkGradient) {
+                Text("Gradient pupil")
+                    .font(.system(size: 12))
+                    .foregroundStyle(preferences.idleMark ? .primary : .tertiary)
+            }
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .padding(.leading, 38)
+            .disabled(!preferences.idleMark)
+            .help("The pupil's highlight leans towards wherever it's looking, like a "
+                  + "catchlight. Off gives it a flat fill instead.")
+
             Divider().padding(.vertical, 4)
 
             Toggle(isOn: Binding(

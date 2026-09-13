@@ -1570,6 +1570,9 @@ struct IdleMark: View {
     var position: IdleMarkPosition = .center
     /// What colour the light is. See `IdleMarkTint` for why it is a short list.
     var tint: IdleMarkTint = .white
+    /// Whether the pupil leans a gradient into its gaze, or stays a flat fill.
+    /// See `pupilGradient`.
+    var gradient: Bool = true
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -1616,6 +1619,14 @@ struct IdleMark: View {
         )
     }
 
+    /// The style actually handed to `.fill`: the gradient above when it is
+    /// wanted, or the flat colour it replaced, type-erased so one modifier can
+    /// carry either. Some people find the tilt distracting on a mark they are
+    /// staring at for hours, and it costs nothing to let them turn it off.
+    private var pupilFill: AnyShapeStyle {
+        gradient ? AnyShapeStyle(pupilGradient) : AnyShapeStyle(tint.light(isAttentive: isAttentive))
+    }
+
     var body: some View {
         ZStack {
             // The mark itself: a notch, barely lighter than the black it sits
@@ -1640,7 +1651,7 @@ struct IdleMark: View {
             // one and not the menu bar's: a status item is a template image and
             // macOS decides what colour it comes out.
             Capsule(style: .continuous)
-                .fill(pupilGradient)
+                .fill(pupilFill)
                 .frame(
                     width: eye * animator.eye.dilation,
                     height: max(eye * animator.eye.dilation * (1 - animator.eye.lid * 0.86), 1)
