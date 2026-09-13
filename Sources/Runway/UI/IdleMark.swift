@@ -389,6 +389,22 @@ final class IdleMarkAnimator {
         case peek
         /// Short even saccades marching across, the way an eye crosses a line.
         case scan
+        /// The pupil opens without anything squeezing it shut first — no
+        /// contraction, no held stare, just letting more light in and settling
+        /// back. `focus`'s opposite number: that one is a grip, this is a
+        /// loosening.
+        case widen
+        /// A single startled flinch. Lid and gaze move together in one motion
+        /// and recover together, which is the whole difference between this
+        /// and a blink with a shrug added: a real flinch closes the eye and
+        /// pulls back at the same time, and pulling is not something this
+        /// mark can do, so the pupil kicks sideways instead.
+        case recoil
+        /// One held look, longer than anything else in the set. Everything
+        /// else here fixates for under a second because that is how long a
+        /// real glance lasts; this is what it looks like when whatever the
+        /// eye landed on is actually worth its time.
+        case linger
 
         /// What this beat costs, for deciding whether it is affordable.
         ///
@@ -415,6 +431,12 @@ final class IdleMarkAnimator {
             case .drift: return (4, 2.07)
             case .peek: return (5, 0.43)
             case .scan: return (8, 0.53)
+            case .widen: return (2, 0.42)
+            case .recoil: return (4, 0.22)
+            // Long on the clock, cheap on the compositor: the hold between
+            // the two saccades is not animating anything, so only the two
+            // jumps and the closing blink count against the budget.
+            case .linger: return (4, 0.29)
             }
         }
 
@@ -429,7 +451,7 @@ final class IdleMarkAnimator {
         /// Mode, and they happen to be the cheapest things here anyway.
         var isLidOnly: Bool {
             switch self {
-            case .blink, .doubleBlink, .slowBlink, .squint, .flutter: return true
+            case .blink, .doubleBlink, .slowBlink, .squint, .flutter, .widen: return true
             default: return false
             }
         }
@@ -526,7 +548,10 @@ final class IdleMarkAnimator {
             (5, .focus),
             (5, .drift),
             (5, .peek),
-            (4, .scan)
+            (4, .scan),
+            (5, .widen),
+            (2, .recoil),
+            (6, .linger)
         ]
         let power = PowerSource.current
         return all.filter { power.allows($0.beat) }
@@ -581,6 +606,12 @@ final class IdleMarkAnimator {
             await peek()
         case .scan:
             await scan()
+        case .widen:
+            await widen()
+        case .recoil:
+            await recoil()
+        case .linger:
+            await linger()
         }
     }
 
@@ -899,6 +930,51 @@ final class IdleMarkAnimator {
             guard !isAttentive, !Task.isCancelled else { break }
         }
 
+        saccade(to: .zero)
+        try? await Task.sleep(for: .milliseconds(70))
+        await blink()
+    }
+
+    /// The pupil opens on its own, holds a beat, and eases back — no lid, no
+    /// gaze, just the aperture changing. `focus` is a grip that snaps shut and
+    /// releases past rest; this is the opposite motion, unhurried both ways,
+    /// which is what keeps the two from reading as the same beat played
+    /// backwards.
+    private func widen() async {
+        move(Eye(lid: restLid, gaze: eye.gaze, dilation: 1.18), .easeOut(duration: 0.16))
+        try? await Task.sleep(for: .milliseconds(Int.random(in: 380...620)))
+        guard !Task.isCancelled else { return }
+        move(Eye(lid: restLid, gaze: eye.gaze, dilation: 1), .easeInOut(duration: 0.26))
+    }
+
+    /// A flinch: the lid slaps most of the way shut and the pupil kicks a
+    /// short way sideways in the same instant, then both come home together
+    /// through `saccade`. Never mid-hover, for the same reason `doubleTake`
+    /// is not — flinching away from whoever just arrived reads as startled
+    /// *by them*, which is not the read this mark is going for.
+    private func recoil() async {
+        guard !isAttentive else { return }
+        let side: CGFloat = Bool.random() ? 1 : -1
+        let kick = CGSize(width: leaning(side * CGFloat.random(in: 0.3...0.5), by: bias), height: 0)
+
+        move(Eye(lid: 0.8, gaze: kick, dilation: 0.88), .easeIn(duration: 0.05))
+        try? await Task.sleep(for: .milliseconds(90))
+        guard !isAttentive, !Task.isCancelled else { return }
+        saccade(to: .zero)
+        try? await Task.sleep(for: .milliseconds(70))
+    }
+
+    /// One look, held far past anything else here — one and a half to two and
+    /// a half seconds, against the 220-900ms a fixation gets in `lookAround`.
+    /// It reads as expensive and is nearly free: the hold between the two
+    /// saccades animates nothing, so the budget only ever sees two jumps and
+    /// a blink, the same as a single glance costs.
+    private func linger() async {
+        guard !isAttentive else { return }
+        let target = nextTarget(after: .zero)
+        saccade(to: target)
+        try? await Task.sleep(for: .milliseconds(Int.random(in: 1500...2400)))
+        guard !isAttentive, !Task.isCancelled else { return }
         saccade(to: .zero)
         try? await Task.sleep(for: .milliseconds(70))
         await blink()
@@ -1516,6 +1592,30 @@ struct IdleMark: View {
         )
     }
 
+    /// The pupil's fill: the same two-stop gradient every status disc in the
+    /// app already carries — see `StatusPalette.fill`, which is `[colour,
+    /// colour.opacity(0.74)]` — reused rather than reinvented, so a coloured
+    /// mark reads as the same kind of light as the rest of Runway and not a
+    /// mascot with its own palette. A flat fill was the odd one out.
+    ///
+    /// Angled by the gaze rather than fixed top-to-bottom: the highlight leans
+    /// the way the pupil is looking, like a catchlight, which is what turns a
+    /// static gradient into a second thing this mark visibly does. It is free
+    /// to animate — `gaze` is already the `value:` on the `.animation` below,
+    /// so tilting the gradient with it rides a redraw that was happening
+    /// anyway rather than scheduling one of its own. Nothing here holds a
+    /// timer or repeats; on a dark screen or with Reduce Motion on, the gaze
+    /// stops moving and so does this.
+    private var pupilGradient: LinearGradient {
+        let base = tint.light(isAttentive: isAttentive)
+        let lean = animator.eye.gaze
+        return LinearGradient(
+            colors: [base, base.opacity(0.74)],
+            startPoint: UnitPoint(x: 0.5 - lean.width * 0.4, y: 0.5 - lean.height * 0.4),
+            endPoint: UnitPoint(x: 0.5 + lean.width * 0.4, y: 0.5 + lean.height * 0.4)
+        )
+    }
+
     var body: some View {
         ZStack {
             // The mark itself: a notch, barely lighter than the black it sits
@@ -1540,7 +1640,7 @@ struct IdleMark: View {
             // one and not the menu bar's: a status item is a template image and
             // macOS decides what colour it comes out.
             Capsule(style: .continuous)
-                .fill(tint.light(isAttentive: isAttentive))
+                .fill(pupilGradient)
                 .frame(
                     width: eye * animator.eye.dilation,
                     height: max(eye * animator.eye.dilation * (1 - animator.eye.lid * 0.86), 1)
