@@ -1595,27 +1595,42 @@ struct IdleMark: View {
         )
     }
 
-    /// The pupil's fill: the same two-stop gradient every status disc in the
-    /// app already carries — see `StatusPalette.fill`, which is `[colour,
-    /// colour.opacity(0.74)]` — reused rather than reinvented, so a coloured
-    /// mark reads as the same kind of light as the rest of Runway and not a
-    /// mascot with its own palette. A flat fill was the odd one out.
+    /// The pupil's fill: a small bright catchlight over the tint's resting
+    /// colour, not the two-stop opacity fade `StatusPalette.fill` uses on a
+    /// status disc (`[colour, colour.opacity(0.74)]`), which is what this
+    /// used to reuse directly. That formula does not carry over: a status
+    /// disc is 10–13 points across and sits on saturated colour of its own,
+    /// where a 26-point swing in alpha between two stops of the same shade
+    /// is a visible top-to-bottom shade. This pupil is a handful of points
+    /// across and already translucent, on the near-black shell — the same
+    /// swing anti-aliased into a smudge nobody could tell apart from a flat
+    /// fill.
     ///
-    /// Angled by the gaze rather than fixed top-to-bottom: the highlight leans
-    /// the way the pupil is looking, like a catchlight, which is what turns a
-    /// static gradient into a second thing this mark visibly does. It is free
-    /// to animate — `gaze` is already the `value:` on the `.animation` below,
-    /// so tilting the gradient with it rides a redraw that was happening
-    /// anyway rather than scheduling one of its own. Nothing here holds a
-    /// timer or repeats; on a dark screen or with Reduce Motion on, the gaze
-    /// stops moving and so does this.
-    private var pupilGradient: LinearGradient {
-        let base = tint.light(isAttentive: isAttentive)
+    /// A `RadialGradient` reads at that size where the linear wash did not: a
+    /// concentrated bright spot against a dimmer field is what a catchlight
+    /// actually looks like, and stays legible even when the whole shape is
+    /// only a few points wide. The bright stop reuses `light(isAttentive:
+    /// true)` — the tint's own brighter tier, already defined for the
+    /// attentive state — rather than inventing a fourth colour just for this.
+    ///
+    /// Positioned by the gaze rather than fixed in the centre, for the same
+    /// reason the linear version was angled: the glint leans the way the
+    /// pupil is looking, like a real one would, and rides the same redraw
+    /// `gaze` already drives rather than scheduling one of its own. Nothing
+    /// here holds a timer or repeats; on a dark screen or with Reduce Motion
+    /// on, the gaze stops moving and so does this. The 0.35 factor keeps the
+    /// centre inside the shape at every gaze angle — a wider one could push
+    /// the bright spot off the pupil entirely at full deflection, which is
+    /// the same smudge this replaces, just relocated.
+    private var pupilGradient: RadialGradient {
+        let bright = tint.light(isAttentive: true)
+        let dim = tint.light(isAttentive: isAttentive).opacity(0.45)
         let lean = animator.eye.gaze
-        return LinearGradient(
-            colors: [base, base.opacity(0.74)],
-            startPoint: UnitPoint(x: 0.5 - lean.width * 0.4, y: 0.5 - lean.height * 0.4),
-            endPoint: UnitPoint(x: 0.5 + lean.width * 0.4, y: 0.5 + lean.height * 0.4)
+        return RadialGradient(
+            colors: [bright, dim],
+            center: UnitPoint(x: 0.5 - lean.width * 0.35, y: 0.5 - lean.height * 0.35),
+            startRadius: 0,
+            endRadius: eye * 0.68
         )
     }
 
