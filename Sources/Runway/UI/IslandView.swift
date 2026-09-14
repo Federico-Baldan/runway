@@ -588,62 +588,75 @@ struct JobDetail: View {
         // not something to shout at them about. See `RunStatus.isFailure`.
         let blamed = job.status.isFailure
 
-        HStack(alignment: .center, spacing: 7) {
-            // `isSuspended` threaded through here as well, and it is the row
-            // that most needed it: this glyph carries both of the repeating
-            // animations the island permits itself — the approval pulse and
-            // `ActivityRing`'s sweep — and a run has one of these per job.
-            StatusGlyph(
-                status: job.status,
-                size: 8,
-                blocked: job.isBlockedOnApproval,
-                isSuspended: isSuspended
-            )
-            Text(job.name)
-                .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(StatusStyle.color(for: job.status).opacity(0.95))
-                .frame(width: 96, alignment: .leading)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .help(job.name)
-
-            StepBar(job: job, segmentCap: Self.stepDotLimit, isSuspended: isSuspended)
-
-            if let note = jobNote(job) {
-                Text(note)
-                    .font(.system(size: 9.5, design: .monospaced))
-                    .foregroundStyle(blamed
-                                     ? StatusPalette.failure.opacity(0.92)
-                                     : .white.opacity(0.62))
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(alignment: .center, spacing: 7) {
+                // `isSuspended` threaded through here as well, and it is the
+                // row that most needed it: this glyph carries both of the
+                // repeating animations the island permits itself — the
+                // approval pulse and `ActivityRing`'s sweep — and a run has
+                // one of these per job.
+                StatusGlyph(
+                    status: job.status,
+                    size: 8,
+                    blocked: job.isBlockedOnApproval,
+                    isSuspended: isSuspended
+                )
+                Text(job.name)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(StatusStyle.color(for: job.status).opacity(0.95))
+                    .frame(width: 96, alignment: .leading)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .help(note)
-            }
+                    .help(job.name)
 
-            Spacer(minLength: 0)
-        }
-        // The ground grows, the row does not.
-        //
-        // Padding the blamed row instead would push its glyph and its name
-        // inward by the same amount, so the one row you are meant to read
-        // fastest would be the one whose columns no longer line up with the
-        // rows above it. Negative padding on the *background* spends the width
-        // outward instead: every row's content stays on the same two vertical
-        // rules, and only the paint bleeds. It is the mirror of the positive
-        // inset the hover ground above uses for the same reason.
-        .background(
-            ZStack(alignment: .leading) {
-                StatusPalette.failure.opacity(0.10)
-                Rectangle()
-                    .fill(StatusPalette.failure)
-                    .frame(width: 2)
+                StepBar(job: job, segmentCap: Self.stepDotLimit, isSuspended: isSuspended)
+
+                if let note = jobNote(job) {
+                    Text(note)
+                        .font(.system(size: 9.5, design: .monospaced))
+                        .foregroundStyle(blamed
+                                         ? StatusPalette.failure.opacity(0.92)
+                                         : .white.opacity(0.62))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .help(note)
+                }
+
+                Spacer(minLength: 0)
             }
-            .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-            .padding(.vertical, -2.5)
-            .padding(.horizontal, -6)
-            .opacity(blamed ? 1 : 0)
-        )
-        .animation(Motion.content, value: blamed)
+            // The ground grows, the row does not.
+            //
+            // Padding the blamed row instead would push its glyph and its
+            // name inward by the same amount, so the one row you are meant to
+            // read fastest would be the one whose columns no longer line up
+            // with the rows above it. Negative padding on the *background*
+            // spends the width outward instead: every row's content stays on
+            // the same two vertical rules, and only the paint bleeds. It is
+            // the mirror of the positive inset the hover ground above uses
+            // for the same reason.
+            .background(
+                ZStack(alignment: .leading) {
+                    StatusPalette.failure.opacity(0.10)
+                    Rectangle()
+                        .fill(StatusPalette.failure)
+                        .frame(width: 2)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                .padding(.vertical, -2.5)
+                .padding(.horizontal, -6)
+                .opacity(blamed ? 1 : 0)
+            )
+            .animation(Motion.content, value: blamed)
+
+            // Indented under the job's own name and step bar, not flush with
+            // the glyph — a plan belongs to the row above it, and lining its
+            // left edge up with `job.name` rather than `StatusGlyph` says so
+            // without another label.
+            if let plan = job.terraformPlan {
+                TerraformPlanView(plan: plan)
+                    .padding(.leading, 15)
+            }
+        }
     }
 
     /// The one line of prose a job row earns: what is running, or what broke.
@@ -682,6 +695,286 @@ struct JobDetail: View {
         let unique = names.filter { seen.insert($0).inserted }
         return "can approve: " + unique.prefix(4).joined(separator: ", ")
             + (unique.count > 4 ? " +\(unique.count - 4)" : "")
+    }
+}
+
+/// A Terraform plan's shape, drawn the way `StepBar` draws a job's steps —
+/// counts first, detail on request. Only ever shown for a job whose log
+/// actually parsed into one; see `Job.terraformPlan`.
+///
+/// Colours are not a sixth hue: `.read` and `.moved` share `quiet` with
+/// `cancelled` and `skipped` elsewhere in the island, on the same reasoning
+/// `StatusStyle` already states — a narrow, fixed vocabulary is what keeps a
+/// glance legible, and neither a data refresh nor a bare rename is news the
+/// way a create, update, replace or destroy is.
+struct TerraformPlanView: View {
+    /// Rows drawn before the rest collapse into a count. The notch's canvas
+    /// is a fixed height (`NotchMath.canvasSize`, shared across every run on
+    /// screen) that does not grow to fit its content — an uncapped list from
+    /// a real-sized plan pushes the panel's own footer, "updated Xs ago" and
+    /// the Quit button, below the window's bottom edge, invisible and
+    /// unclickable. The same reasoning `JobDetail.stepDotLimit` and
+    /// `JobTrack.barLimit` already apply to a job's own steps, one level in.
+    static let rowLimit = 8
+
+    let plan: TerraformPlanSummary
+
+    @State private var expandedAddresses: Set<String> = []
+
+    /// The rows actually drawn when there are more than fit — riskiest
+    /// first, so a destroy or a forced replacement is never one of the ones
+    /// left in the overflow count while five untouched creates get the
+    /// space instead.
+    private var shownResources: [TerraformPlanSummary.ResourceChange] {
+        guard plan.resources.count > Self.rowLimit else { return plan.resources }
+        let priority: [TerraformPlanSummary.ResourceChange.Category] = [
+            .destroy, .replace, .update, .create, .moved, .read,
+        ]
+        return plan.resources
+            .enumerated()
+            .sorted { lhs, rhs in
+                let left = priority.firstIndex(of: lhs.element.category) ?? priority.count
+                let right = priority.firstIndex(of: rhs.element.category) ?? priority.count
+                // Stable within a category: ties keep plan order rather than
+                // whatever order `sorted` would otherwise leave them in.
+                return left == right ? lhs.offset < rhs.offset : left < right
+            }
+            .prefix(Self.rowLimit)
+            .map(\.element)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            if !plan.driftedAddresses.isEmpty {
+                driftBanner
+            }
+
+            summaryLine
+
+            if !plan.resources.isEmpty {
+                VStack(alignment: .leading, spacing: 1) {
+                    ForEach(shownResources) { resource in
+                        resourceRow(resource)
+                    }
+                    if plan.resources.count > Self.rowLimit {
+                        Text("+\(plan.resources.count - Self.rowLimit) more — open on GitHub")
+                            .font(.system(size: 8.5, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.35))
+                    }
+                }
+            }
+
+            if !plan.outputChanges.isEmpty {
+                outputsBlock
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    // MARK: Summary
+
+    @ViewBuilder
+    private var summaryLine: some View {
+        if plan.isNoOpPlan {
+            HStack(spacing: 4) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 8, weight: .bold))
+                Text("no changes")
+                    .font(.system(size: 9.5, design: .monospaced))
+            }
+            .foregroundStyle(StatusPalette.success.opacity(0.85))
+        } else {
+            HStack(spacing: 10) {
+                statChip(count: plan.toAdd, label: "to add", color: StatusPalette.success)
+                statChip(count: plan.toChange, label: "to change", color: StatusPalette.running)
+                statChip(count: plan.toReplace, label: "to replace", color: StatusPalette.approval)
+                statChip(count: plan.toDestroy, label: "to destroy", color: StatusPalette.failure)
+                if let unchanged = plan.unchangedCount, unchanged > 0 {
+                    Text("\(unchanged) unchanged")
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.35))
+                }
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func statChip(count: Int, label: String, color: Color) -> some View {
+        if count > 0 {
+            HStack(spacing: 3) {
+                Text("\(count)")
+                    .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
+                Text(label)
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.5))
+            }
+            .foregroundStyle(color.opacity(0.95))
+        }
+    }
+
+    // MARK: Drift
+
+    private var driftBanner: some View {
+        HStack(alignment: .top, spacing: 5) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 8))
+            Text("drift: " + plan.driftedAddresses.joined(separator: ", "))
+                .font(.system(size: 9, design: .monospaced))
+                .lineLimit(2)
+                .truncationMode(.tail)
+        }
+        // `.approval`, not `.fault` — drift is real news about the
+        // infrastructure, not Runway reporting a problem with itself, which
+        // is the distinction `StatusPalette.fault`'s own doc comment draws.
+        .foregroundStyle(StatusPalette.approval.opacity(0.9))
+        .padding(.vertical, 2)
+    }
+
+    // MARK: Resources
+
+    @ViewBuilder
+    private func resourceRow(_ resource: TerraformPlanSummary.ResourceChange) -> some View {
+        let isExpanded = expandedAddresses.contains(resource.address)
+        let hasDetail = !resource.attributes.isEmpty || resource.movedFrom != nil
+
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Text(symbol(for: resource.category))
+                    .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                    .foregroundStyle(color(for: resource.category))
+                    .frame(width: 12)
+                Text(resource.address)
+                    .font(.system(size: 9.5, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if hasDetail {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.3))
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                }
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                guard hasDetail else { return }
+                withAnimation(Motion.content) {
+                    if isExpanded { expandedAddresses.remove(resource.address) }
+                    else { expandedAddresses.insert(resource.address) }
+                }
+            }
+            .help(resource.actionReason ?? resource.category.rawValue)
+
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 1) {
+                    if let movedFrom = resource.movedFrom {
+                        Text("moved from \(movedFrom)")
+                            .font(.system(size: 8.5, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.45))
+                    }
+                    ForEach(resource.attributes, id: \.key) { attribute in
+                        attributeRow(attribute)
+                    }
+                }
+                .padding(.leading, 18)
+                .transition(.opacity)
+            }
+        }
+    }
+
+    private func attributeRow(_ attribute: TerraformPlanSummary.AttributeDiff) -> some View {
+        HStack(spacing: 5) {
+            Text(attribute.key)
+                .font(.system(size: 8.5, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.4))
+            if let before = attribute.before {
+                // `.strikethrough` before `.foregroundStyle`: it is one of
+                // `Text`'s own concatenation modifiers and only exists on
+                // `Text` itself, while `.foregroundStyle` returns `some View`
+                // — reversing the order would not compile.
+                Text(before)
+                    .font(.system(size: 8.5, design: .monospaced))
+                    .strikethrough(attribute.after != nil, color: .white.opacity(0.25))
+                    .foregroundStyle(.white.opacity(0.45))
+                Text("→")
+                    .font(.system(size: 8, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.25))
+            }
+            if let after = attribute.after {
+                Text(after)
+                    .font(.system(size: 8.5, design: .monospaced))
+                    .italic(attribute.isUnknown || attribute.isSensitive)
+                    .foregroundStyle(
+                        .white.opacity(attribute.isUnknown || attribute.isSensitive ? 0.5 : 0.85)
+                    )
+            }
+            if attribute.forcesReplacement {
+                Text("forces replacement")
+                    .font(.system(size: 7.5, design: .monospaced))
+                    .foregroundStyle(StatusPalette.approval.opacity(0.8))
+            }
+        }
+        .lineLimit(1)
+        .truncationMode(.tail)
+    }
+
+    // MARK: Outputs
+
+    private var outputsBlock: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text("outputs")
+                .font(.system(size: 8, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.35))
+                .textCase(.uppercase)
+            ForEach(plan.outputChanges, id: \.name) { output in
+                HStack(spacing: 5) {
+                    Text(output.name)
+                        .font(.system(size: 8.5, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.5))
+                    if let before = output.before {
+                        Text(before)
+                            .font(.system(size: 8.5, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.45))
+                        Text("→")
+                            .font(.system(size: 8, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.25))
+                    }
+                    if let after = output.after {
+                        Text(after)
+                            .font(.system(size: 8.5, design: .monospaced))
+                            .italic(output.isUnknown)
+                            .foregroundStyle(.white.opacity(output.isUnknown ? 0.5 : 0.85))
+                    }
+                }
+                .lineLimit(1)
+            }
+        }
+        .padding(.top, 2)
+    }
+
+    // MARK: Vocabulary
+
+    private func symbol(for category: TerraformPlanSummary.ResourceChange.Category) -> String {
+        switch category {
+        case .create: return "+"
+        case .update: return "~"
+        case .replace: return "±"
+        case .destroy: return "−"
+        case .read: return "»"
+        case .moved: return "→"
+        }
+    }
+
+    private func color(for category: TerraformPlanSummary.ResourceChange.Category) -> Color {
+        switch category {
+        case .create: return StatusPalette.success
+        case .update: return StatusPalette.running
+        case .replace: return StatusPalette.approval
+        case .destroy: return StatusPalette.failure
+        case .read, .moved: return StatusPalette.quiet
+        }
     }
 }
 

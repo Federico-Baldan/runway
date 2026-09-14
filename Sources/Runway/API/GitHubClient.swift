@@ -183,6 +183,18 @@ public actor GitHubClient {
     /// decoding failure one morning.
     public static let apiVersion = "2026-03-10"
 
+    /// Ceiling on a job log `fetchJobLog` will actually read.
+    ///
+    /// `session.data(for:)` buffers the whole body before this method sees
+    /// any of it, so this cannot stop the download itself — only a streaming
+    /// read could, and `URLSession.bytes(for:)` consumed one byte at a time
+    /// is slow enough on a real multi-megabyte log to trade one performance
+    /// problem for another. What this guard buys instead: no doubling the
+    /// bytes into a `String` for a log nothing could sensibly render, and no
+    /// repeating the attempt — `RunMonitor.attachTerraformPlans` marks a job
+    /// over this ceiling permanently attempted rather than retrying it.
+    static let maxJobLogBytes = 10_000_000
+
     /// Public GitHub. Enterprise Server installs use `https://HOST/api/v3`.
     public static let defaultBaseURL = URL(string: "https://api.github.com")!
 
@@ -556,6 +568,113 @@ public actor GitHubClient {
         )
     }
 
+    /// The raw text of one job's log — everything every step in the job
+    /// printed to stdout/stderr, in order, each line carrying GitHub's own
+    /// timestamp prefix.
+    ///
+    /// A fourth request, and the rarest of all: gated by
+    /// `RunMonitor.shouldFetchPlanLog`, which only asks for it once a step
+    /// whose *name* looks like a Terraform plan has finished — a job with no
+    /// such step never reaches this method, and never spends a request on it.
+    /// Same **Actions: Read** permission as the other three; confirmed
+    /// against GitHub's own fine-grained permissions reference, which lists
+    /// this endpoint's `/logs` path under the same repository permission.
+    ///
+    /// This endpoint answers with a redirect to a signed, third-party
+    /// blob-storage URL rather than the log body itself, and the redirect is
+    /// followed through an explicit delegate rather than left to the
+    /// session's own default handling — see `StripAuthorizationOnRedirect`
+    /// for why an *undocumented* default is not something this token's
+    /// safety should rest on.
+    public func fetchJobLog(repository: String, jobID: Int) async throws -> String {
+        guard let token = tokenProvider(), !token.isEmpty else {
+            throw GitHubError.noToken
+        }
+        guard let url = URL(
+            string: "\(baseURL.absoluteString)/repos/\(repository)/actions/jobs/\(jobID)/logs"
+        ) else {
+            throw GitHubError.network("Could not build a URL for job \(jobID)'s log.")
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 30
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue(Self.apiVersion, forHTTPHeaderField: "X-GitHub-Api-Version")
+        request.setValue("Runway", forHTTPHeaderField: "User-Agent")
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+
+        let redirectGuard = StripAuthorizationOnRedirect()
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request, delegate: redirectGuard)
+        } catch {
+            throw GitHubError.network(error.localizedDescription)
+        }
+
+        guard let http = response as? HTTPURLResponse else {
+            throw GitHubError.network("Non-HTTP response.")
+        }
+
+        // The rate-limit headers ride the *first* response — GitHub's own,
+        // before the redirect to blob storage — since `data(for:delegate:)`
+        // only ever hands this method the final one.
+        //
+        // The fallback only fires when no redirect was observed at all, and
+        // is host-checked before touching `rateLimit`: that branch has no
+        // structural guarantee the way `first` does (it *is* the response to
+        // a request this method built against `url`), so if some future
+        // change ever routed a different host's response through here — a
+        // stub session in a test, say — this stops it from overwriting
+        // Runway's real GitHub budget with a stranger's numbers.
+        if let first = redirectGuard.firstResponse {
+            absorbRateLimitHeaders(first, billed: true)
+        } else if http.url?.host == url.host {
+            absorbRateLimitHeaders(http, billed: true)
+        }
+
+        switch http.statusCode {
+        case 200:
+            guard data.count <= Self.maxJobLogBytes else {
+                // Not retried — see `RunMonitor.attachTerraformPlans`'s catch
+                // for `.decoding`. A log this large will not shrink on the
+                // next poll, and doubling it into a `String` here is exactly
+                // the cost this guard exists to avoid paying at all.
+                throw GitHubError.decoding(
+                    "Job \(jobID)'s log is over \(Self.maxJobLogBytes) bytes; not read."
+                )
+            }
+            guard let text = String(data: data, encoding: .utf8) else {
+                throw GitHubError.decoding("Job log was not valid UTF-8.")
+            }
+            return text
+
+        case 401:
+            throw GitHubError.unauthorized
+
+        case 403, 429:
+            let remaining = Int(http.value(forHTTPHeaderField: "x-ratelimit-remaining") ?? "")
+            let retryAfter = TimeInterval(http.value(forHTTPHeaderField: "retry-after") ?? "")
+            if http.statusCode == 429 || remaining == 0 || retryAfter != nil {
+                throw GitHubError.rateLimited(retryAfter: retryAfter ?? secondsUntilReset(http))
+            }
+            throw GitHubError.forbidden(messageFromBody(data))
+
+        case 404, 410:
+            // 410 is what a log past its account's retention window answers
+            // with — see the Notchform demo's retention note. Read the same
+            // as 404: nothing left to show, not a fault worth retrying.
+            throw GitHubError.notFound("\(repository) job \(jobID) logs")
+
+        case 500...599:
+            throw GitHubError.serverError(status: http.statusCode)
+
+        default:
+            throw GitHubError.serverError(status: http.statusCode)
+        }
+    }
+
     // MARK: - Transport
 
     /// One conditional GET, decoded.
@@ -732,6 +851,55 @@ public actor GitHubClient {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let message = object["message"] as? String else { return "" }
         return message
+    }
+}
+
+// MARK: - Redirect safety
+
+/// Observes exactly one thing about a job-log request: the response GitHub
+/// itself sent, before its redirect to blob storage is followed — since
+/// `URLSession.data(for:delegate:)` only ever hands `fetchJobLog` the *final*
+/// response, and the rate-limit headers this app tracks ride the first one.
+///
+/// Also the explicit, auditable half of the security property `fetchJobLog`
+/// depends on. Returning `newRequest` with `Authorization` removed is, in
+/// fact, what a bare `URLSession` with no delegate at all already does on
+/// every redirect it performs — same-origin included, with no override hook.
+/// That default is real, but it is not part of any documented contract, and
+/// "the token stayed off a third-party host because of a platform behaviour
+/// nobody wrote down" is not a guarantee worth resting on. Doing it here, on
+/// purpose, in code that says so, means it holds regardless of what the
+/// undocumented default happens to do.
+private final class StripAuthorizationOnRedirect: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    // A real lock rather than reasoning about task-lifecycle ordering: the
+    // redirect callback and `fetchJobLog`'s read of `firstResponse` almost
+    // certainly never overlap in practice, but "almost certainly," for a
+    // shared mutable var touched from a delegate callback on a queue this
+    // class does not control, is exactly the kind of race a lock removes for
+    // the cost of a handful of uncontended lock/unlock pairs.
+    private let lock = NSLock()
+    private var _firstResponse: HTTPURLResponse?
+
+    var firstResponse: HTTPURLResponse? {
+        lock.lock()
+        defer { lock.unlock() }
+        return _firstResponse
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        lock.lock()
+        if _firstResponse == nil { _firstResponse = response }
+        lock.unlock()
+
+        var sanitized = request
+        sanitized.setValue(nil, forHTTPHeaderField: "Authorization")
+        completionHandler(sanitized)
     }
 }
 

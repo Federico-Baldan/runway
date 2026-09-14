@@ -99,6 +99,7 @@ public final class Preferences {
         static let idleMarkGradient = "island.idleMarkGradient"
         static let approvalNotifications = "notify.approvals"
         static let approvalsFromOthers = "actors.approvalsFromOthers"
+        static let terraformPlans = "island.terraformPlans"
     }
 
     private let defaults: UserDefaults
@@ -177,6 +178,11 @@ public final class Preferences {
         self.approvalsFromOthers = (defaults.object(forKey: Key.approvalsFromOthers) as? Bool)
             ?? EnvironmentDefault.bool(EnvironmentDefault.approvalsFromOthers)
             ?? false
+        // On by default: the whole feature costs nothing until a step named
+        // like a Terraform plan actually completes, so there is no quiet
+        // per-poll cost to opt somebody out of sight-unseen the way, say,
+        // `approvalsFromOthers` has one.
+        self.showsTerraformPlans = defaults.object(forKey: Key.terraformPlans) as? Bool ?? true
 
         // `RUNWAY_ACTORS` without `RUNWAY_ACTOR_MODE` reads as "watch these
         // people" — taking the list but leaving the mode on `.me` would ignore
@@ -341,6 +347,15 @@ public final class Preferences {
     /// No effect under `.everyone`: nothing is being hidden there to restore.
     public var approvalsFromOthers: Bool {
         didSet { defaults.set(approvalsFromOthers, forKey: Key.approvalsFromOthers) }
+    }
+
+    /// Read Terraform plans out of job logs and show them in the expanded
+    /// panel. Off skips the log fetch entirely — see
+    /// `RunMonitor.attachTerraformPlans` — not just the section in the UI, so
+    /// turning it off actually removes the extra request rather than only
+    /// hiding what it bought.
+    public var showsTerraformPlans: Bool {
+        didSet { defaults.set(showsTerraformPlans, forKey: Key.terraformPlans) }
     }
 
     // MARK: - Derived

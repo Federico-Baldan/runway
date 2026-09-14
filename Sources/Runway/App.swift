@@ -228,6 +228,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let watchedActors = preferences.watchedActors
         let approvalsFromOthers = preferences.approvalsFromOthers
         let currentUser = preferences.currentUser
+        let showsTerraformPlans = preferences.showsTerraformPlans
 
         Task.detached {
             await monitor.configure(
@@ -238,7 +239,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 actorScope: actorScope,
                 watchedActors: watchedActors,
                 approvalsFromOthers: approvalsFromOthers,
-                currentUser: currentUser
+                currentUser: currentUser,
+                showsTerraformPlans: showsTerraformPlans
             )
         }
     }
@@ -420,6 +422,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             preferences.watchedActors.joined(separator: ","),
             preferences.approvalsFromOthers ? "approvals" : "strict",
             preferences.currentUser ?? "",
+            preferences.showsTerraformPlans ? "plans" : "noplans",
         ].joined(separator: "|")
     }
 

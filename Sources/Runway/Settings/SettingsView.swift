@@ -796,6 +796,24 @@ struct SettingsView: View {
 
             Divider().padding(.vertical, 4)
 
+            Toggle(isOn: $preferences.showsTerraformPlans) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Show Terraform plans in the expanded panel")
+                        .font(.system(size: 12, weight: .medium))
+                    Text("When a job has a step that looks like a Terraform plan, apply, "
+                         + "or destroy, Runway reads its log once the step finishes and "
+                         + "shows creates, updates, replacements, and destroys as a list "
+                         + "instead of a wall of text. Off stops the extra request "
+                         + "entirely, not just the section it would have drawn.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .toggleStyle(.switch)
+
+            Divider().padding(.vertical, 4)
+
             Toggle(isOn: Binding(
                 get: { launchAtLogin },
                 set: { wanted in

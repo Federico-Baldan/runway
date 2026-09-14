@@ -304,6 +304,17 @@ public struct Job: Codable, Sendable, Hashable, Identifiable {
     public let htmlURL: String?
     public let steps: [Step]
 
+    /// A Terraform plan found in this job's log, if `RunMonitor` went
+    /// looking — see `RunMonitor.shouldFetchPlanLog`. Stamped, not decoded:
+    /// GitHub's jobs endpoint has no such field, the same way `WorkflowRun`
+    /// stamps `deployTarget` and `reviews` after the fact. `nil` covers three
+    /// different truths Runway does not currently distinguish in the UI —
+    /// nobody looked yet, no step name matched, and a step matched but its
+    /// log had nothing parseable — because a job that never runs Terraform
+    /// and one whose plan could not be read both draw the same way: without
+    /// a plan section.
+    public var terraformPlan: TerraformPlanSummary?
+
     public init(
         id: Int,
         name: String,
@@ -770,8 +781,22 @@ public struct WorkflowRun: Codable, Sendable, Hashable, Identifiable {
         // The target moves when the jobs land, and again if a gate turns a
         // guess read off a job name into the name GitHub actually uses.
         let environmentPart = deployTarget.map { "\($0.name):\($0.tier.rawValue)" } ?? ""
+        // A plan can arrive after everything else about a finished run has
+        // already settled — the job's own status, its steps, went terminal
+        // one poll before the log fetch it gated came back. None of the parts
+        // above would move when that happens, which is exactly the shape of
+        // update `emitIfChanged` is built to swallow: without this, a plan
+        // that finished parsing after its run went quiet would sit in memory
+        // and never reach the island until something *else* about the run
+        // changed — which, for a finished run, may be never.
+        let planPart = jobs
+            .compactMap { job -> String? in
+                guard let plan = job.terraformPlan else { return nil }
+                return "\(job.id):\(plan.toAdd)+\(plan.toChange)~\(plan.toReplace)r\(plan.toDestroy)-"
+            }
+            .joined(separator: ",")
         return "\(identity)|\(status.rawValue)|\(jobPart)|\(stepPart)"
-            + "|\(approvalPart)|\(environmentPart)|\(reviewPart)"
+            + "|\(approvalPart)|\(environmentPart)|\(reviewPart)|\(planPart)"
     }
 }
 

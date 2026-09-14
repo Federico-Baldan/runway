@@ -171,6 +171,10 @@ public actor RunMonitor {
     private var includeApprovalsFromOthers = false
     private var watchedActors: [String] = []
     private var currentUser: String?
+    /// Whether to look for Terraform plans in job logs at all. See
+    /// `Preferences.showsTerraformPlans` — off means `attachTerraformPlans`
+    /// never spends a request, not just that the panel hides the section.
+    private var includeTerraformPlans = true
 
     // MARK: Discovery cache
 
@@ -205,6 +209,33 @@ public actor RunMonitor {
     /// simply broke, and re-asking it every five seconds for the ten minutes it
     /// lingers on the island is the exact cost this records to avoid.
     private var reviewCache: [String: [DeploymentReview]] = [:]
+
+    /// Parsed Terraform plans, keyed by job id rather than run identity —
+    /// unlike the caches above, a plan belongs to one specific job, and a
+    /// matrix run's shards each plan independently.
+    ///
+    /// An entry is permanent for the life of the process: a completed step's
+    /// log is append-only and stops appending at completion, so there is
+    /// nothing to refresh. `planAttempted` is the separate "already asked"
+    /// marker — present whenever this job will never be asked about again,
+    /// whether or not the answer was a plan. See `shouldFetchPlanLog`.
+    private var planCache: [Int: TerraformPlanSummary] = [:]
+    private var planAttempted: Set<Int> = []
+    /// How many times a retryable fault has been let through for this job.
+    /// Bounded — see `attachTerraformPlans` — because a log fetch that keeps
+    /// hitting `.network` (a large log tripping the request's own timeout, a
+    /// flaky link) would otherwise retry every poll forever, at one full
+    /// download per attempt.
+    private var planRetryCount: [Int: Int] = [:]
+    private static let maxPlanFetchAttempts = 3
+    /// Ceiling on how many job logs `attachJobs` will fetch in a single poll,
+    /// across every run — the same reasoning `barLimit`/`stepDotLimit` apply
+    /// to what a row draws, moved one level up: a matrix build with a dozen
+    /// shards that all just finished planning would otherwise fire a dozen
+    /// sequential multi-megabyte log downloads inside one actor-isolated
+    /// poll tick. Whatever does not fit this tick is simply reconsidered next
+    /// poll — `planAttempted` is not touched for a job skipped on budget.
+    private static let maxPlanFetchesPerPoll = 5
 
     /// Runs the user has taken off the island by hand.
     ///
@@ -289,7 +320,8 @@ public actor RunMonitor {
         actorScope: ActorScope,
         watchedActors: [String],
         approvalsFromOthers: Bool,
-        currentUser: String?
+        currentUser: String?,
+        showsTerraformPlans: Bool = true
     ) {
         let repoConfigChanged = repoScope != self.repoScope
             || repoLimit != self.repoLimit
@@ -303,6 +335,7 @@ public actor RunMonitor {
         self.actorScope = actorScope
         self.watchedActors = watchedActors
         self.includeApprovalsFromOthers = approvalsFromOthers
+        self.includeTerraformPlans = showsTerraformPlans
         if let currentUser { self.currentUser = currentUser }
 
         if repoConfigChanged {
@@ -422,6 +455,9 @@ public actor RunMonitor {
         jobCache.removeAll()
         approvalCache.removeAll()
         reviewCache.removeAll()
+        planCache.removeAll()
+        planAttempted.removeAll()
+        planRetryCount.removeAll()
         failureCount = 0
         watched = []
         configurationGeneration &+= 1
@@ -886,6 +922,45 @@ public actor RunMonitor {
         run.status.isAwaitingApproval || run.jobs.contains { $0.status.isAwaitingApproval }
     }
 
+    /// Should this job's log be read for a Terraform plan?
+    ///
+    /// Fires once, right after a matching step completes — never while it is
+    /// still running, since there is nothing to read yet, and never again
+    /// once `attempted` already holds this job's id, the same trap
+    /// `shouldFetchApprovals` exists to avoid one level up. A job whose steps
+    /// never mention Terraform costs nothing: this is a string comparison
+    /// against step names the poll already has in memory, evaluated before
+    /// any request is even considered.
+    static func shouldFetchPlanLog(for job: Job, attempted: Set<Int>) -> Bool {
+        guard !attempted.contains(job.id) else { return false }
+        return job.steps.contains { ranToCompletion($0.status) && looksLikeTerraformPlan($0.name) }
+    }
+
+    /// Actually executed and left something to read, as opposed to merely
+    /// `isTerminal`. `isTerminal` also covers `.skipped` and `.cancelled` —
+    /// the ordinary shape of `if: github.event_name == 'pull_request'` on a
+    /// plan step, which is skipped on every push to `main` — and a job that
+    /// qualified on that basis would spend a request reading a log with
+    /// nothing in it, every time, forever, for a workflow that never plans on
+    /// push at all.
+    private static func ranToCompletion(_ status: RunStatus) -> Bool {
+        switch status {
+        case .success, .failure, .timedOut: return true
+        default: return false
+        }
+    }
+
+    /// A step only qualifies by its own *name* — Runway never sees the
+    /// `uses:` line that ran it, only the label GitHub shows for it in the
+    /// jobs API. Broad on purpose: "Terraform Plan", "terraform plan", and
+    /// "Run terraform plan -out=tfplan" (GitHub's name for a bare `run:` line
+    /// with no `name:` of its own) all match; "Lint" or "Deploy" never do.
+    static func looksLikeTerraformPlan(_ stepName: String) -> Bool {
+        let name = stepName.lowercased()
+        return name.contains("terraform")
+            && (name.contains("plan") || name.contains("apply") || name.contains("destroy"))
+    }
+
     /// Should this failed run cost one request to find out whether it failed at
     /// all?
     ///
@@ -928,6 +1003,8 @@ public actor RunMonitor {
     private func attachJobs(to runs: [WorkflowRun]) async throws -> [WorkflowRun] {
         var result: [WorkflowRun] = []
         result.reserveCapacity(runs.count)
+        // Shared across every run this tick — see `maxPlanFetchesPerPoll`.
+        var planFetchBudget = Self.maxPlanFetchesPerPoll
 
         for run in runs {
             var copy = run
@@ -953,6 +1030,15 @@ public actor RunMonitor {
                 copy.jobs = jobCache[run.identity] ?? []
             }
 
+            // Outside the branch above on purpose: a job whose steps came
+            // back from `jobCache` rather than a fresh fetch can still be
+            // missing its plan — `planCache` is keyed on job id, not run
+            // identity, and is checked independently of whether this poll
+            // happened to refetch jobs at all.
+            copy.jobs = await attachTerraformPlans(
+                to: copy.jobs, repository: run.repository, budget: &planFetchBudget
+            )
+
             copy.pendingDeployments = await pendingDeployments(for: copy)
             // Before the review history, which reads `deployTarget` on the cold
             // path, and after the jobs, which are what the target is mostly
@@ -964,6 +1050,61 @@ public actor RunMonitor {
             // Last of all, because it overwrites `status`, and every gate above
             // wants to see the status GitHub actually sent.
             copy.stampRejection()
+            result.append(copy)
+        }
+        return result
+    }
+
+    /// Attach a parsed Terraform plan to any job whose steps say it has one.
+    ///
+    /// Never throws, for the same reason `pendingDeployments(for:)` does not:
+    /// a plan is decoration on a job the island already draws correctly by
+    /// status alone.
+    ///
+    /// A transient fault is retried, but only up to `maxPlanFetchAttempts` —
+    /// unlike `reviewHistory(for:)`'s unbounded retry, a log fetch can be a
+    /// multi-megabyte download that trips its own 30-second timeout, and
+    /// `.network` is one of the faults `GitHubError.isRetryable` calls worth
+    /// retrying. Retrying *that* every single poll forever, on a log that
+    /// will time out the same way every time, is a permanent request leak
+    /// wearing the clothes of resilience. Three tries, then give up like any
+    /// other permanent failure.
+    private func attachTerraformPlans(
+        to jobs: [Job], repository: String, budget: inout Int
+    ) async -> [Job] {
+        guard includeTerraformPlans, !jobs.isEmpty else { return jobs }
+        var result: [Job] = []
+        result.reserveCapacity(jobs.count)
+        for job in jobs {
+            var copy = job
+            if let cached = planCache[job.id] {
+                copy.terraformPlan = cached
+            } else if budget > 0, Self.shouldFetchPlanLog(for: job, attempted: planAttempted) {
+                budget -= 1
+                do {
+                    let log = try await client.fetchJobLog(repository: repository, jobID: job.id)
+                    if let summary = TerraformPlanParser.parse(log: log) {
+                        planCache[job.id] = summary
+                        copy.terraformPlan = summary
+                    }
+                    planAttempted.insert(job.id)
+                    planRetryCount[job.id] = nil
+                } catch let error as GitHubError where error.isRetryable {
+                    let attempts = (planRetryCount[job.id] ?? 0) + 1
+                    if attempts >= Self.maxPlanFetchAttempts {
+                        planAttempted.insert(job.id)
+                        planRetryCount[job.id] = nil
+                    } else {
+                        planRetryCount[job.id] = attempts
+                    }
+                } catch {
+                    // Permanent for this job: retention expired (404/410), an
+                    // oversized log (see `GitHubClient.maxJobLogBytes`), or
+                    // this token cannot read this repository's logs at all.
+                    planAttempted.insert(job.id)
+                    planRetryCount[job.id] = nil
+                }
+            }
             result.append(copy)
         }
         return result
@@ -1037,6 +1178,16 @@ public actor RunMonitor {
         jobCache = jobCache.filter { identities.contains($0.key) }
         approvalCache = approvalCache.filter { identities.contains($0.key) }
         reviewCache = reviewCache.filter { identities.contains($0.key) }
+
+        // Plans are keyed on job id, not run identity, so they cannot be
+        // filtered by the same key as the three caches above — derive the
+        // still-live job ids from what `jobCache` just kept. A run whose jobs
+        // are gone can never ask `shouldFetchPlanLog` about them again
+        // anyway, so nothing here can come back stale.
+        let liveJobIDs = Set(jobCache.values.flatMap { $0.map(\.id) })
+        planCache = planCache.filter { liveJobIDs.contains($0.key) }
+        planAttempted = planAttempted.intersection(liveJobIDs)
+        planRetryCount = planRetryCount.filter { liveJobIDs.contains($0.key) }
     }
 
     /// Poll cadence for the next tick, as a pure function of its inputs.
