@@ -97,6 +97,15 @@ public final class IslandModel {
     /// Drives the enter/exit morph.
     public var isOnScreen = false
 
+    /// Height of the window the island draws in, 0 until it is placed.
+    ///
+    /// Written by `NotchPanelController`, which sizes that window once per
+    /// screen and never again (see `NotchMath.canvasSize`). The expanded panel
+    /// reads it to know how tall its run list may grow before it has to
+    /// scroll: past this, content is not squeezed, it is simply drawn off
+    /// the bottom of a window that cannot grow to hold it.
+    public var canvasHeight: CGFloat = 0
+
     /// True while the island is animating OUT.
     public var isLeaving = false
 

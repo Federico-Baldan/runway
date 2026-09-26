@@ -304,16 +304,18 @@ public struct Job: Codable, Sendable, Hashable, Identifiable {
     public let htmlURL: String?
     public let steps: [Step]
 
-    /// A Terraform plan found in this job's log, if `RunMonitor` went
-    /// looking — see `RunMonitor.shouldFetchPlanLog`. Stamped, not decoded:
-    /// GitHub's jobs endpoint has no such field, the same way `WorkflowRun`
-    /// stamps `deployTarget` and `reviews` after the fact. `nil` covers three
-    /// different truths Runway does not currently distinguish in the UI —
-    /// nobody looked yet, no step name matched, and a step matched but its
-    /// log had nothing parseable — because a job that never runs Terraform
-    /// and one whose plan could not be read both draw the same way: without
-    /// a plan section.
-    public var terraformPlan: TerraformPlanSummary?
+    /// The Terraform plans found in this job's log, in the order they were
+    /// printed, if `RunMonitor` went looking — see
+    /// `RunMonitor.shouldFetchPlanLog`. Plural because one job can plan
+    /// several environments (`staging`, then `staging-dr`), and each is its
+    /// own answer. Stamped, not decoded: GitHub's jobs endpoint has no such
+    /// field, the same way `WorkflowRun` stamps `deployTarget` and `reviews`
+    /// after the fact. Empty covers three different truths Runway does not
+    /// currently distinguish in the UI — nobody looked yet, no step name
+    /// matched, and a step matched but its log had nothing parseable —
+    /// because a job that never runs Terraform and one whose plan could not
+    /// be read both draw the same way: without a plan section.
+    public var terraformPlans: [TerraformPlanSummary] = []
 
     public init(
         id: Int,
@@ -791,8 +793,11 @@ public struct WorkflowRun: Codable, Sendable, Hashable, Identifiable {
         // changed — which, for a finished run, may be never.
         let planPart = jobs
             .compactMap { job -> String? in
-                guard let plan = job.terraformPlan else { return nil }
-                return "\(job.id):\(plan.toAdd)+\(plan.toChange)~\(plan.toReplace)r\(plan.toDestroy)-"
+                guard !job.terraformPlans.isEmpty else { return nil }
+                let counts = job.terraformPlans
+                    .map { "\($0.toAdd)+\($0.toChange)~\($0.toReplace)r\($0.toDestroy)-" }
+                    .joined(separator: ";")
+                return "\(job.id):\(counts)"
             }
             .joined(separator: ",")
         return "\(identity)|\(status.rawValue)|\(jobPart)|\(stepPart)"

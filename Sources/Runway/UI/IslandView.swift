@@ -127,10 +127,15 @@ struct IslandView: View {
     private var restBadge: some View {
         HStack(spacing: 5) {
             if let run = model.headline {
+                // Indeterminate on purpose: under the cutout the ring is only
+                // the sweep, never the blue arc of settled steps. At eleven
+                // points a frozen arc beside a moving head read as two
+                // indicators disagreeing, and "how far through" is what the
+                // expanded panel is for.
                 StatusGlyph(
                     status: run.status,
                     size: 11,
-                    progress: run.isActive ? run.progress : nil,
+                    progress: nil,
                     blocked: run.isBlockedOnApproval,
                     isSuspended: model.isSuspended
                 )
@@ -358,21 +363,41 @@ struct IslandView: View {
 
     private var expanded: some View {
         VStack(alignment: .leading, spacing: 2) {
-            ForEach(model.expandedDetail) { run in
-                JobDetail(
-                    run: run,
-                    showActor: model.showsMultipleActors,
-                    isSuspended: model.isSuspended,
-                    onOpen: onOpen,
-                    onDismiss: onDismiss
-                )
-                    .transition(
-                        .asymmetric(
-                            insertion: .move(edge: .top).combined(with: .opacity),
-                            removal: .opacity
+            // Scrolls once it outgrows the window, and only then.
+            //
+            // The canvas is a fixed height and never grows (see
+            // `NotchMath.canvasSize`), but the runs under it are not: a
+            // Terraform plan adds up to a dozen rows to its job, and two
+            // pipelines that each plan two environments ran the panel off the
+            // bottom of the window — rows drawn on top of each other and the
+            // footer pushed out of reach. Under the root's vertical
+            // `fixedSize` this scroll view is proposed no height, so it reports
+            // its content's own and `maxHeight` only ever *caps* it: a panel
+            // that fits is exactly as tall as it was, and one that does not
+            // stops at the window's edge and scrolls.
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(model.expandedDetail) { run in
+                        JobDetail(
+                            run: run,
+                            showActor: model.showsMultipleActors,
+                            isSuspended: model.isSuspended,
+                            showsPlanDetail: planCount <= 1,
+                            onOpen: onOpen,
+                            onDismiss: onDismiss
                         )
-                    )
+                            .transition(
+                                .asymmetric(
+                                    insertion: .move(edge: .top).combined(with: .opacity),
+                                    removal: .opacity
+                                )
+                            )
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(maxHeight: detailHeightLimit)
 
             if model.expandedDetail.isEmpty {
                 Text(model.state.error ?? "Nothing running right now.")
@@ -395,6 +420,42 @@ struct IslandView: View {
                 removal: .opacity.animation(.easeOut(duration: 0.12))
             )
         )
+    }
+
+    /// Plans across every run the panel is drawing.
+    ///
+    /// One plan opens straight onto its resource list, the way it always
+    /// has. More than one — two pipelines, or `staging` and `staging-dr` in
+    /// the same one — start as a single line of counts each, so the panel
+    /// answers "what is each of these going to do" at a glance and the rows
+    /// behind any one of them are a click away instead of all of them at
+    /// once.
+    private var planCount: Int {
+        model.expandedDetail.reduce(0) { total, run in
+            total + run.jobList.reduce(0) { $0 + $1.terraformPlans.count }
+        }
+    }
+
+    /// The tallest the run list may draw before it scrolls: the window,
+    /// minus everything else the expanded island stacks above and below it.
+    ///
+    /// The pill above keeps its own fixed row height (`RunLine`, `noticeRow`)
+    /// so it is counted rather than measured; `chrome` is the two hairlines,
+    /// the panel's top padding, the footer, and room for the island's own
+    /// shadow under its bottom edge. Unbounded until the controller has
+    /// placed the window, which it does before the island can be hovered.
+    private var detailHeightLimit: CGFloat {
+        guard model.canvasHeight > 0 else { return .infinity }
+        let band = hasNotch ? notchHeight : 0
+        let pill: CGFloat
+        if model.state.error != nil || model.collapsedRuns.isEmpty {
+            pill = 32
+        } else {
+            pill = CGFloat(model.collapsedRuns.count) * 33
+                + (model.hiddenRunCount > 0 ? 18 : 0)
+        }
+        let chrome: CGFloat = 72
+        return max(model.canvasHeight - band - pill - chrome, 120)
     }
 
     private var footer: some View {
@@ -440,6 +501,9 @@ struct JobDetail: View {
     var showActor: Bool = false
     /// True while the display is asleep, so the glyph can stop its animation.
     var isSuspended: Bool = false
+    /// Whether a plan opens onto its resource list or starts as one line of
+    /// counts. See `IslandView.planCount`.
+    var showsPlanDetail: Bool = true
     var onOpen: (WorkflowRun) -> Void = { _ in }
     var onDismiss: (WorkflowRun) -> Void = { _ in }
 
@@ -652,8 +716,12 @@ struct JobDetail: View {
             // the glyph — a plan belongs to the row above it, and lining its
             // left edge up with `job.name` rather than `StatusGlyph` says so
             // without another label.
-            if let plan = job.terraformPlan {
-                TerraformPlanView(plan: plan)
+            //
+            // Offset, not a plan id: a job's plans are fixed once parsed and
+            // two environments can come out identical, so position is the
+            // only identity they reliably have.
+            ForEach(Array(job.terraformPlans.enumerated()), id: \.offset) { _, plan in
+                TerraformPlanView(plan: plan, showsDetailByDefault: showsPlanDetail)
                     .padding(.leading, 15)
             }
         }
@@ -700,7 +768,7 @@ struct JobDetail: View {
 
 /// A Terraform plan's shape, drawn the way `StepBar` draws a job's steps —
 /// counts first, detail on request. Only ever shown for a job whose log
-/// actually parsed into one; see `Job.terraformPlan`.
+/// actually parsed into one; see `Job.terraformPlans`.
 ///
 /// Colours are not a sixth hue: `.read` and `.moved` share `quiet` with
 /// `cancelled` and `skipped` elsewhere in the island, on the same reasoning
@@ -718,8 +786,22 @@ struct TerraformPlanView: View {
     static let rowLimit = 8
 
     let plan: TerraformPlanSummary
+    /// Whether the resource list starts open. Decided by the panel, not the
+    /// plan: see `IslandView.planCount`.
+    var showsDetailByDefault: Bool = true
 
     @State private var expandedAddresses: Set<String> = []
+    /// `nil` until somebody clicks the counts line, and only then does it
+    /// outrank `showsDetailByDefault` — so a plan nobody touched still
+    /// follows the panel when a second plan arrives and the default flips.
+    @State private var detailToggle: Bool?
+
+    private var showsDetail: Bool { detailToggle ?? showsDetailByDefault }
+
+    /// Anything behind the counts line worth opening it for.
+    private var hasDetail: Bool {
+        !plan.resources.isEmpty || !plan.outputChanges.isEmpty
+    }
 
     /// The rows actually drawn when there are more than fit — riskiest
     /// first, so a destroy or a forced replacement is never one of the ones
@@ -751,21 +833,25 @@ struct TerraformPlanView: View {
 
             summaryLine
 
-            if !plan.resources.isEmpty {
-                VStack(alignment: .leading, spacing: 1) {
-                    ForEach(shownResources) { resource in
-                        resourceRow(resource)
+            if showsDetail {
+                if !plan.resources.isEmpty {
+                    VStack(alignment: .leading, spacing: 1) {
+                        ForEach(shownResources) { resource in
+                            resourceRow(resource)
+                        }
+                        if plan.resources.count > Self.rowLimit {
+                            Text("+\(plan.resources.count - Self.rowLimit) more — open on GitHub")
+                                .font(.system(size: 8.5, design: .monospaced))
+                                .foregroundStyle(.white.opacity(0.35))
+                        }
                     }
-                    if plan.resources.count > Self.rowLimit {
-                        Text("+\(plan.resources.count - Self.rowLimit) more — open on GitHub")
-                            .font(.system(size: 8.5, design: .monospaced))
-                            .foregroundStyle(.white.opacity(0.35))
-                    }
+                    .transition(.opacity)
                 }
-            }
 
-            if !plan.outputChanges.isEmpty {
-                outputsBlock
+                if !plan.outputChanges.isEmpty {
+                    outputsBlock
+                        .transition(.opacity)
+                }
             }
         }
         .padding(.vertical, 2)
@@ -773,8 +859,46 @@ struct TerraformPlanView: View {
 
     // MARK: Summary
 
+    /// The plan's name when its job has more than one, its counts, and —
+    /// when there is a list behind them — the chevron that opens it.
     @ViewBuilder
     private var summaryLine: some View {
+        let line = HStack(spacing: 6) {
+            if let label = plan.label {
+                Text(label)
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.62))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: 150, alignment: .leading)
+                    .help(label)
+            }
+            counts
+            if hasDetail {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 7, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.3))
+                    .rotationEffect(.degrees(showsDetail ? 90 : 0))
+            }
+            Spacer(minLength: 0)
+        }
+
+        // Only a line with something behind it takes the click. One without
+        // — a no-op plan — lets it through to the run underneath, which opens
+        // on GitHub the way it did before this line was tappable at all.
+        if hasDetail {
+            line
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    withAnimation(Motion.content) { detailToggle = !showsDetail }
+                }
+        } else {
+            line
+        }
+    }
+
+    @ViewBuilder
+    private var counts: some View {
         if plan.isNoOpPlan {
             HStack(spacing: 4) {
                 Image(systemName: "checkmark")
@@ -794,7 +918,6 @@ struct TerraformPlanView: View {
                         .font(.system(size: 9, design: .monospaced))
                         .foregroundStyle(.white.opacity(0.35))
                 }
-                Spacer(minLength: 0)
             }
         }
     }

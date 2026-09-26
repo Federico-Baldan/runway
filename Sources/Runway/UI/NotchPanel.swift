@@ -336,6 +336,9 @@ public final class NotchPanelController {
         if panel.frame != placement.frame {
             panel.setFrame(placement.frame, display: true)
         }
+        if model.canvasHeight != placement.frame.height {
+            model.canvasHeight = placement.frame.height
+        }
         if notchChanged { updateRootView() }
         // The hit region is derived from the display, so it goes stale the
         // moment the island changes screens: a cutout-shaped region left behind

@@ -244,6 +244,13 @@ public struct TerraformPlanSummary: Sendable, Equatable, Hashable {
     /// apply — the banner, not the full diff.
     public let driftedAddresses: [String]
     public let isNoOpPlan: Bool
+    /// Which plan this is, when one job printed more than one — a job that
+    /// plans `staging` and then `staging-dr` in two steps has two of these,
+    /// and without a name they are two anonymous rows of counts. `nil` for
+    /// the ordinary one-plan job, whose row above already names it. Set by
+    /// `TerraformPlanParser.reconcile`, never by the parse itself: the log
+    /// does not say which step printed what, the jobs API does.
+    public var label: String?
 
     public init(
         toAdd: Int = 0, toChange: Int = 0, toReplace: Int = 0, toDestroy: Int = 0,
@@ -251,7 +258,8 @@ public struct TerraformPlanSummary: Sendable, Equatable, Hashable {
         resources: [ResourceChange] = [],
         outputChanges: [OutputChange] = [],
         driftedAddresses: [String] = [],
-        isNoOpPlan: Bool = false
+        isNoOpPlan: Bool = false,
+        label: String? = nil
     ) {
         self.toAdd = toAdd
         self.toChange = toChange
@@ -262,5 +270,6 @@ public struct TerraformPlanSummary: Sendable, Equatable, Hashable {
         self.outputChanges = outputChanges
         self.driftedAddresses = driftedAddresses
         self.isNoOpPlan = isNoOpPlan
+        self.label = label
     }
 }
