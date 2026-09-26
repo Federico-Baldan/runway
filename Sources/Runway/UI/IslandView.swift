@@ -121,8 +121,9 @@ struct IslandView: View {
     /// Resting badge for a notched Mac.
     ///
     /// Everything the island knows, in about eleven points of height: the worst
-    /// run's state as a mark, how far through it is as the ring around that
-    /// mark, and how many others there are. It is the only thing most people
+    /// run's state as a mark — a sweeping ring while it runs, with no progress
+    /// arc (see the glyph below) — where it is deploying, and how many others
+    /// there are. It is the only thing most people
     /// will ever see, so it is the piece that has to survive being glanced at.
     private var restBadge: some View {
         HStack(spacing: 5) {
@@ -174,7 +175,8 @@ struct IslandView: View {
                     isSuspended: model.isSuspended,
                     position: model.idleMarkPosition,
                     tint: model.idleMarkTint,
-                    gradient: model.idleMarkGradient
+                    gradient: model.idleMarkGradient,
+                    breathes: model.idleMarkBreath
                 )
                 .transition(.opacity)
             }
@@ -276,7 +278,8 @@ struct IslandView: View {
                             isAttentive: true,
                             position: model.idleMarkPosition,
                             tint: model.idleMarkTint,
-                            gradient: model.idleMarkGradient
+                            gradient: model.idleMarkGradient,
+                            breathes: model.idleMarkBreath
                         )
                         .frame(width: 18)
                         Text("nothing running")

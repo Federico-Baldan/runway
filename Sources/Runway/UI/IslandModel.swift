@@ -94,6 +94,9 @@ public final class IslandModel {
     /// same as `idleMarkTint`.
     public var idleMarkGradient: Bool = true
 
+    /// Whether that pupil's light breathes. Written the same way.
+    public var idleMarkBreath: Bool = true
+
     /// Drives the enter/exit morph.
     public var isOnScreen = false
 

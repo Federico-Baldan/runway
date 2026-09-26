@@ -113,8 +113,9 @@ final class IdleMarkAnimator {
     /// The animation for the next change to `led`, scoped the same way
     /// `motion` is to `eye`.
     private(set) var ledMotion: Animation = .easeInOut(duration: 1)
-    /// Off when the pupil is a flat fill (`Preferences.idleMarkGradient`):
-    /// nothing would be drawn, so no breath is worth a wakeup either.
+    /// Off when the pupil is a flat fill (`Preferences.idleMarkGradient`) or
+    /// the breathing light is switched off (`Preferences.idleMarkBreath`):
+    /// either way nothing would be drawn, so no breath is worth a wakeup.
     @ObservationIgnored var ledEnabled = true
 
     @ObservationIgnored private var beatTask: Task<Void, Never>?
@@ -156,6 +157,11 @@ final class IdleMarkAnimator {
         eye = next
     }
 
+    /// Put the light out now. For the view, when Respiro is switched off.
+    func dimLight() {
+        light(0, .easeOut(duration: 0.3))
+    }
+
     /// Light or dim the pupil's core, saying how. The only writer of `led`.
     private func light(_ level: CGFloat, _ animation: Animation) {
         guard ledEnabled || level == 0, level != led else { return }
@@ -180,11 +186,12 @@ final class IdleMarkAnimator {
         reduceMotionWanted = reduceMotion
         guard beatTask == nil else { return }
         guard !reduceMotion else {
-            // Reduce Motion still gets an eye. It gets an open one.
+            // Reduce Motion still gets an eye. It gets an open one, unlit.
             restLid = 0
             isAsleep = false
             pendingWake = false
             move(Eye(), .easeOut(duration: 0.11))
+            light(0, .easeOut(duration: 0.3))
             return
         }
 
@@ -358,8 +365,11 @@ final class IdleMarkAnimator {
             await sleepTick()
             return
         }
+        // Read once per turn: it is a system power-status query, and the
+        // doze check, the draw and the breath all want the same answer.
+        let power = PowerSource.current
         if !isAttentive,
-           awakeSince.duration(to: ContinuousClock.now) >= PowerSource.current.sleepDelay {
+           awakeSince.duration(to: ContinuousClock.now) >= power.sleepDelay {
             doze()
             return
         }
@@ -369,12 +379,12 @@ final class IdleMarkAnimator {
         // the beat's first move, the fall with its last — and costs one more
         // only when the beat is shorter than the rise, to hold the top of the
         // breath. Never looped: between beats the pupil is a still frame.
-        let breath = PowerSource.current.breath
+        let breath = power.breath
         let breathes = ledEnabled && Int.random(in: 0..<100) < breath.chance
         let started = ContinuousClock.now
         if breathes { light(1, .easeInOut(duration: breath.rise)) }
 
-        await play(nextBeat())
+        await play(nextBeat(power: power))
 
         if breathes {
             let rise = Duration.milliseconds(Int(breath.rise * 1000))
@@ -393,13 +403,14 @@ final class IdleMarkAnimator {
     /// elapsed ticker use — lets macOS coalesce this wakeup with others already
     /// scheduled nearby instead of bringing the CPU out of idle for a blink.
     private func nextPause() -> (seconds: Double, tolerance: Duration) {
+        let power = PowerSource.current
         guard !isAsleep else {
             // Asleep, the mark is not trying to be watched, so the slack is
             // seconds rather than milliseconds. The phase stretches the gap on
             // top of that: deep sleep waits close to twice as long as the old
             // fixed one did, which is what pays for a dreaming phase that does
             // more than a stir. See `SleepPhase.gapScale`.
-            let base = Double.random(in: PowerSource.current.stirGap)
+            let base = Double.random(in: power.stirGap)
             return (base * phase.gapScale, .seconds(5))
         }
         // Awake, the mark winds down before it drops off: the gap stretches
@@ -408,18 +419,18 @@ final class IdleMarkAnimator {
         // battery instead of seventy-five seconds spends most of the extra
         // time on the slow end of this, where a beat comes every six to
         // nineteen seconds rather than every four to twelve.
-        let slowdown = 1 + 0.6 * tiredness
+        let slowdown = 1 + 0.6 * tiredness(under: power)
         return (Double.random(in: 4...12) * slowdown, .milliseconds(500))
     }
 
     /// How close the mark is to dozing off: 0 just after waking or being
     /// looked at, 1 at the moment it would fall asleep. Drives the slower
     /// pace above and lets the tired beats into the draw.
-    private var tiredness: Double {
+    private func tiredness(under power: PowerSource) -> Double {
         // Nobody nods off mid-conversation.
         guard !isAttentive else { return 0 }
         let awake = awakeSince.duration(to: ContinuousClock.now)
-        return min(max(awake / PowerSource.current.sleepDelay, 0), 1)
+        return min(max(awake / power.sleepDelay, 0), 1)
     }
 
     // MARK: - Beats
@@ -649,7 +660,7 @@ final class IdleMarkAnimator {
     /// Rebuilt per draw rather than stored: a couple of dozen tuples every few
     /// seconds is free, and it is what keeps the random inside `lookAround`
     /// fresh — and lets the tired beats in only once `tiredness` says so.
-    private var pool: [(weight: Int, beat: Beat)] {
+    private func pool(power: PowerSource) -> [(weight: Int, beat: Beat)] {
         var all: [(weight: Int, beat: Beat)] = [
             (20, .blink),
             (7, .doubleBlink),
@@ -680,19 +691,18 @@ final class IdleMarkAnimator {
         // likely the closer it gets: at the very end about one draw in six on
         // the wall (one in eight on battery, where only `heavyBlink` is
         // affordable) is the mark losing the fight.
-        let tired = tiredness
+        let tired = tiredness(under: power)
         if tired >= 0.5 {
             let weight = Int((tired * 14).rounded())
             all.append((weight: weight, beat: .heavyBlink))
             all.append((weight: weight / 2, beat: .nodOff))
             all.append((weight: weight / 3, beat: .yawn))
         }
-        let power = PowerSource.current
         return all.filter { $0.weight > 0 && power.allows($0.beat) }
     }
 
-    private func nextBeat() -> Beat {
-        let entries = pool
+    private func nextBeat(power: PowerSource) -> Beat {
+        let entries = pool(power: power)
         let total = entries.reduce(0) { $0 + $1.weight }
         guard total > 0 else { return .blink }
 
@@ -1540,12 +1550,16 @@ final class IdleMarkAnimator {
         )
         light(0.55, .easeInOut(duration: 0.75))
         try? await Task.sleep(for: .milliseconds(790))
+        // Before the cancellation check, like the lid in `heavyBlink`: a
+        // light that went up always comes back down. Cancelled here — a hover
+        // waking the mark, the view going away — it would otherwise stay lit
+        // on the woken eye until some later beat happened to lower it.
+        light(0, .easeInOut(duration: 0.95))
         guard !Task.isCancelled else { return }
         move(
             Eye(lid: restLid, gaze: sleepGaze, dilation: 0.87),
             .easeInOut(duration: 0.95)
         )
-        light(0, .easeInOut(duration: 0.95))
     }
 
     /// The lid presses the last of the way down and the pupil shrinks under
@@ -1691,8 +1705,9 @@ final class IdleMarkAnimator {
         )
         light(0.7, .easeInOut(duration: 0.55))
         try? await Task.sleep(for: .milliseconds(600))
-        guard !Task.isCancelled else { return }
+        // Down before the cancellation check. See `breathe`.
         light(0, .easeInOut(duration: 0.85))
+        guard !Task.isCancelled else { return }
         move(
             Eye(lid: min(restLid + 0.03, 1), gaze: sleepGaze, dilation: 0.84),
             .easeInOut(duration: 0.85)
@@ -1750,6 +1765,8 @@ final class IdleMarkAnimator {
         restLid = 0
 
         move(Eye(lid: 0, gaze: .zero, dilation: 1.16), .easeOut(duration: 0.12))
+        // Waking starts from an unlit pupil, whatever sleep left behind.
+        light(0, .easeOut(duration: 0.3))
         try? await Task.sleep(for: .milliseconds(160))
         move(Eye(), .easeInOut(duration: 0.3))
         try? await Task.sleep(for: .milliseconds(240))
@@ -1908,6 +1925,12 @@ struct IdleMark: View {
     /// Whether the pupil leans a gradient into its gaze, or stays a flat fill.
     /// See `pupilGradient`.
     var gradient: Bool = true
+    /// Whether that gradient's light breathes. See `ledCore`. Meaningless
+    /// without the gradient, so the two are read together as `isBreathing`.
+    var breathes: Bool = true
+
+    /// Respiro is on only when there is a gradient for it to light.
+    private var isBreathing: Bool { gradient && breathes }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -2011,7 +2034,7 @@ struct IdleMark: View {
     /// The halo swells with the core — a breath you can see at sixteen
     /// points is mostly the glow, not the disc.
     private var glowRadius: CGFloat {
-        guard gradient else { return height * 0.14 }
+        guard isBreathing else { return height * 0.14 }
         return height * (0.12 + 0.12 * animator.led)
     }
 
@@ -2041,7 +2064,7 @@ struct IdleMark: View {
             Capsule(style: .continuous)
                 .fill(pupilFill)
                 .overlay {
-                    if gradient { ledCore }
+                    if isBreathing { ledCore }
                 }
                 .clipShape(Capsule(style: .continuous))
                 .frame(
@@ -2063,7 +2086,7 @@ struct IdleMark: View {
         .frame(width: width, height: height)
         .onAppear {
             animator.bias = position.gazeBias
-            animator.ledEnabled = gradient
+            animator.ledEnabled = isBreathing
             // Attention goes in through `retain`, not as a bare assignment to
             // the animator's flag. The flag is the half of arriving attentive
             // that changes nothing, and under a cutout arriving is the only
@@ -2104,7 +2127,12 @@ struct IdleMark: View {
         }
         .onChange(of: isAttentive) { _, attentive in animator.attend(attentive) }
         .onChange(of: position) { _, new in animator.bias = new.gazeBias }
-        .onChange(of: gradient) { _, new in animator.ledEnabled = new }
+        .onChange(of: isBreathing) { _, new in
+            animator.ledEnabled = new
+            // Turned off mid-breath: put the light out rather than leave it
+            // lit until the next beat comes round to lower it.
+            if !new { animator.dimLight() }
+        }
         .accessibilityLabel(Text("Runway — nothing running"))
         .help("Nothing is running. Hover for the last update.")
     }

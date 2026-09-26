@@ -97,6 +97,7 @@ public final class Preferences {
         static let idleMarkPosition = "island.idleMarkPosition"
         static let idleMarkTint = "island.idleMarkTint"
         static let idleMarkGradient = "island.idleMarkGradient"
+        static let idleMarkBreath = "island.idleMarkBreath"
         static let approvalNotifications = "notify.approvals"
         static let approvalsFromOthers = "actors.approvalsFromOthers"
         static let terraformPlans = "island.terraformPlans"
@@ -172,6 +173,7 @@ public final class Preferences {
         // On by default: the gradient is what the pupil has shipped with since
         // it was added, so an existing install should not see it vanish.
         self.idleMarkGradient = defaults.object(forKey: Key.idleMarkGradient) as? Bool ?? true
+        self.idleMarkBreath = defaults.object(forKey: Key.idleMarkBreath) as? Bool ?? true
         self.approvalNotifications = (defaults.object(forKey: Key.approvalNotifications) as? Bool)
             ?? EnvironmentDefault.bool(EnvironmentDefault.notifyApprovals)
             ?? true
@@ -315,6 +317,14 @@ public final class Preferences {
     /// flat fill. See `IdleMark.pupilGradient` for what the gradient does.
     public var idleMarkGradient: Bool {
         didSet { defaults.set(idleMarkGradient, forKey: Key.idleMarkGradient) }
+    }
+
+    /// Whether the pupil's light breathes ("Respiro") — the core and halo
+    /// swelling with each beat. Only meaningful with the gradient on; off
+    /// keeps the still gradient and spends nothing on the breath. See
+    /// `IdleMark.ledCore`.
+    public var idleMarkBreath: Bool {
+        didSet { defaults.set(idleMarkBreath, forKey: Key.idleMarkBreath) }
     }
 
     /// Haptic feedback on run transitions.

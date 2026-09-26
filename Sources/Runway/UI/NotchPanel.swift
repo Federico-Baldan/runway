@@ -102,6 +102,11 @@ public final class NotchPanelController {
         didSet { model.idleMarkGradient = idleMarkGradient }
     }
 
+    /// Whether that pupil's light breathes. Straight through, like the rest.
+    public var idleMarkBreath: Bool = true {
+        didSet { model.idleMarkBreath = idleMarkBreath }
+    }
+
     private var currentPlacement: NotchGeometry.Placement?
     /// The display the panel is currently on, so a move between screens can be
     /// told apart from a resize on the one it is already on.

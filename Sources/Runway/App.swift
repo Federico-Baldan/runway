@@ -111,6 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastIdleMarkPosition: IdleMarkPosition?
     private var lastIdleMarkTint: IdleMarkTint?
     private var lastIdleMarkGradient: Bool?
+    private var lastIdleMarkBreath: Bool?
     private var lastConfigurationSignature: String?
     private var lastHost: String?
     /// Debounce for the host field — see `hostChanged`.
@@ -163,6 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.idleMarkPosition = Preferences.shared.idleMarkPosition
         controller.idleMarkTint = Preferences.shared.idleMarkTint
         controller.idleMarkGradient = Preferences.shared.idleMarkGradient
+        controller.idleMarkBreath = Preferences.shared.idleMarkBreath
 
         if verifyOnly {
             runVerification(controller)
@@ -305,6 +307,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         lastIdleMarkPosition = Preferences.shared.idleMarkPosition
         lastIdleMarkTint = Preferences.shared.idleMarkTint
         lastIdleMarkGradient = Preferences.shared.idleMarkGradient
+        lastIdleMarkBreath = Preferences.shared.idleMarkBreath
         lastConfigurationSignature = configurationSignature()
 
         // Push the stored configuration in immediately, before the first poll.
@@ -379,6 +382,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if idleMarkGradient != lastIdleMarkGradient {
             lastIdleMarkGradient = idleMarkGradient
             panelController?.idleMarkGradient = idleMarkGradient
+        }
+
+        let idleMarkBreath = Preferences.shared.idleMarkBreath
+        if idleMarkBreath != lastIdleMarkBreath {
+            lastIdleMarkBreath = idleMarkBreath
+            panelController?.idleMarkBreath = idleMarkBreath
         }
 
         let signature = configurationSignature()

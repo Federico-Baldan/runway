@@ -794,6 +794,20 @@ struct SettingsView: View {
             .help("The pupil's highlight leans towards wherever it's looking, like a "
                   + "catchlight. Off gives it a flat fill instead.")
 
+            Toggle(isOn: $preferences.idleMarkBreath) {
+                Text("Breathing light")
+                    .font(.system(size: 12))
+                    .foregroundStyle(preferences.idleMark && preferences.idleMarkGradient
+                                     ? .primary : .tertiary)
+            }
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .padding(.leading, 38)
+            .disabled(!preferences.idleMark || !preferences.idleMarkGradient)
+            .help("The pupil's light swells and fades with each small movement, like a "
+                  + "status LED. Never loops, and less often on battery. Off keeps the "
+                  + "gradient still.")
+
             Divider().padding(.vertical, 4)
 
             Toggle(isOn: $preferences.showsTerraformPlans) {
