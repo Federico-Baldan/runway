@@ -74,7 +74,7 @@ public final class IslandModel {
     /// destroys one `IdleMark` and builds the other. Held in `@State` the
     /// animator went with it, and the mark's sleep cycle restarted from wide
     /// awake on every hover, which on battery is the difference between dozing
-    /// after seventy-five seconds and never dozing at all. Held here it
+    /// after four minutes and never dozing at all. Held here it
     /// outlives the swap; `IdleMarkAnimator.retain`/`release` count the views.
     /// Internal, not `public`: `IdleMarkAnimator` is internal itself, and a
     /// public property cannot expose it. Nothing outside the module wants it —
