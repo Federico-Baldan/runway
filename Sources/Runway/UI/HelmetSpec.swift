@@ -1,3 +1,8 @@
+// CGRect, CGPoint and CGSize come with their members only from CoreGraphics on
+// macOS, which has no such module on Linux, where Foundation has them all.
+#if canImport(CoreGraphics)
+import CoreGraphics
+#endif
 import Foundation
 
 // The five helmets, described. See `HelmetGeometry` for why this is plain data.

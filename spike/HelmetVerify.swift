@@ -12,6 +12,11 @@
 //
 // Add `svg <directory>` to also write each helmet in five poses as SVG.
 
+// CGRect, CGPoint and CGSize come with their members only from CoreGraphics on
+// macOS, which has no such module on Linux, where Foundation has them all.
+#if canImport(CoreGraphics)
+import CoreGraphics
+#endif
 import Foundation
 
 @main
