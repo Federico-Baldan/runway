@@ -89,13 +89,12 @@ public final class IslandModel {
     /// from the preference, same as `idleMarkPosition`.
     public var idleMarkTint: IdleMarkTint = .white
 
-    /// Whether that mark's pupil leans a gradient into its own gaze, or stays
-    /// a flat fill. Written by `NotchPanelController` from the preference,
-    /// same as `idleMarkTint`.
-    public var idleMarkGradient: Bool = true
-
-    /// Whether that pupil's light breathes. Written the same way.
+    /// Whether that mark's light breathes. Written the same way.
     public var idleMarkBreath: Bool = true
+
+    /// Which face that mark wears: the original eye, or a helmet. Written the
+    /// same way.
+    public var idleMarkStyle: AvatarStyle = .default
 
     /// Drives the enter/exit morph.
     public var isOnScreen = false

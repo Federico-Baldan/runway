@@ -118,6 +118,7 @@ spikes-offline:
 	@echo "── centering ──" && $(MAKE) -s spike-run SPIKE=CenteringVerify      SRC="Sources/Runway/UI/NotchMath.swift"
 	@echo "── notch ──"     && $(MAKE) -s spike-run SPIKE=NotchPlacementVerify SRC="Sources/Runway/UI/NotchMath.swift"
 	@echo "── sso ──"       && $(MAKE) -s spike-run SPIKE=SSOVerify           SRC="$(API)/GitHubClient.swift $(API)/Models.swift $(API)/TerraformPlan.swift $(API)/Approvals.swift $(API)/DeployTarget.swift $(API)/RunScope.swift $(API)/ETagStore.swift Sources/Runway/Auth/Keychain.swift"
+	@echo "── helmets ──"   && $(MAKE) -s spike-run SPIKE=HelmetVerify SRC="Sources/Runway/UI/AvatarStyle.swift Sources/Runway/UI/HelmetGeometry.swift Sources/Runway/UI/HelmetSpec.swift Sources/Runway/UI/HelmetSignature.swift"
 	@echo "── 304 ──"      && $(MAKE) -s spike-run SPIKE=ConditionalVerify SRC="$(API)/GitHubClient.swift $(API)/Models.swift $(API)/TerraformPlan.swift $(API)/Approvals.swift $(API)/DeployTarget.swift $(API)/RunScope.swift $(API)/ETagStore.swift Sources/Runway/Auth/Keychain.swift"
 	@echo "── dates ──"    && $(MAKE) -s spike-run SPIKE=DateVerify        SRC="$(API)/GitHubClient.swift $(API)/Models.swift $(API)/TerraformPlan.swift $(API)/Approvals.swift $(API)/DeployTarget.swift $(API)/RunScope.swift $(API)/ETagStore.swift Sources/Runway/Auth/Keychain.swift"
 

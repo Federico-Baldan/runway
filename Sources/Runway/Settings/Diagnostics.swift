@@ -99,6 +99,7 @@ enum Diagnostics {
             print("  points of black under the cutout with the mark in it, blinking and")
             print("  looking around. That is the dot you are looking at.")
             print("  position:    \(Preferences.shared.idleMarkPosition.rawValue)")
+            print("  face:        \(Preferences.shared.idleMarkStyle.rawValue)")
             print("  colour:      \(Preferences.shared.idleMarkTint.rawValue)")
         }
         print()

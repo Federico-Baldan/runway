@@ -110,8 +110,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastIdleMark: Bool?
     private var lastIdleMarkPosition: IdleMarkPosition?
     private var lastIdleMarkTint: IdleMarkTint?
-    private var lastIdleMarkGradient: Bool?
     private var lastIdleMarkBreath: Bool?
+    private var lastIdleMarkStyle: AvatarStyle?
     private var lastConfigurationSignature: String?
     private var lastHost: String?
     /// Debounce for the host field — see `hostChanged`.
@@ -163,8 +163,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.showsIdleMark = Preferences.shared.idleMark
         controller.idleMarkPosition = Preferences.shared.idleMarkPosition
         controller.idleMarkTint = Preferences.shared.idleMarkTint
-        controller.idleMarkGradient = Preferences.shared.idleMarkGradient
         controller.idleMarkBreath = Preferences.shared.idleMarkBreath
+        controller.idleMarkStyle = Preferences.shared.idleMarkStyle
 
         if verifyOnly {
             runVerification(controller)
@@ -306,8 +306,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         lastIdleMark = Preferences.shared.idleMark
         lastIdleMarkPosition = Preferences.shared.idleMarkPosition
         lastIdleMarkTint = Preferences.shared.idleMarkTint
-        lastIdleMarkGradient = Preferences.shared.idleMarkGradient
         lastIdleMarkBreath = Preferences.shared.idleMarkBreath
+        lastIdleMarkStyle = Preferences.shared.idleMarkStyle
         lastConfigurationSignature = configurationSignature()
 
         // Push the stored configuration in immediately, before the first poll.
@@ -378,16 +378,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             panelController?.idleMarkTint = idleMarkTint
         }
 
-        let idleMarkGradient = Preferences.shared.idleMarkGradient
-        if idleMarkGradient != lastIdleMarkGradient {
-            lastIdleMarkGradient = idleMarkGradient
-            panelController?.idleMarkGradient = idleMarkGradient
-        }
-
         let idleMarkBreath = Preferences.shared.idleMarkBreath
         if idleMarkBreath != lastIdleMarkBreath {
             lastIdleMarkBreath = idleMarkBreath
             panelController?.idleMarkBreath = idleMarkBreath
+        }
+
+        let idleMarkStyle = Preferences.shared.idleMarkStyle
+        if idleMarkStyle != lastIdleMarkStyle {
+            lastIdleMarkStyle = idleMarkStyle
+            panelController?.idleMarkStyle = idleMarkStyle
         }
 
         let signature = configurationSignature()

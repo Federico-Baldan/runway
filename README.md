@@ -464,10 +464,11 @@ often and looking around. The band is *blended* into the housing rather than
 hung off it: concave shoulders where it meets the menu bar, convex corners at
 the bottom, so the union of hardware and pixels reads as one object. Hover it
 and it looks back. Left, centre or right in Settings, since the band is the
-cutout's width and that is a lot of room for one small mark — and one of seven
-colours, offered as swatches rather than a colour well because a free picker
-lets you pick something that cannot be seen against the housing's black. Every
-option is a hue the island already uses elsewhere.
+cutout's width and that is a lot of room for one small mark — and, for the
+original eye, one of seven colours, offered as swatches rather than a colour well
+because a free picker lets you pick something that cannot be seen against the
+housing's black. Every option is a hue the island already uses elsewhere. (The
+helmets wear their own livery.)
 
 The eye moves in saccades — abrupt 45-70ms jumps, a fixation between each, and a
 blink on the way home, because that is what a real gaze shift does and a springy
@@ -480,6 +481,43 @@ state: it cycles through light, deep and dreaming, and because the cheapest
 phase is also the one that waits longest, an idle hour costs less than it did
 when all the mark knew how to do was blink. Off in Settings → Where to show
 the island.
+
+**Faces** — the mark does not have to be an eye. Settings → Face offers the
+original eye and five helmets: Apollo (graphite, a gold visor that is also the
+eyelid), Orlan (round window, silver visor, a lamp and a camera), Stealth (nearly
+black, a blue visor), Papaya (a black and papaya racing helmet with a number
+seven) and Endurance (hi-vis chevrons). A face only changes how the same four
+numbers are drawn — how shut the lid is, where it looks, how wide it is open, how
+bright the light is — so every helmet blinks, looks around, nods and dozes
+exactly when the eye does. The lid becomes a sun visor that slides down over the
+window; the breath becomes the LEDs brightening.
+
+Each helmet also has four gestures of its own, short ones that between them make
+up about one beat in eight, and that are not the same on any two helmets. Apollo:
+the gold visor lifts and taps back; a light runs along the orange band; a glint
+slides over the gold; the latches at the sides light as the eyes glance at each.
+Orlan: the lamp flashes while the camera focuses; a light runs round the porthole;
+the eyes glance at the camera as it clicks; the lamp lights and its beam sweeps down the face.
+Stealth: a glint sweeps the glass and the eyes follow it; a line scans the window;
+the eyes read down the glass while the visor strip flashes; targeting brackets
+close on the right eye. Papaya: the tab flicks while the sun visor dips and
+flashes its papaya edge; the number shines; the eyes shiver like an engine; it
+winks. Endurance: a pit-lane strobe; the sun strip dips; a light runs along the
+chevrons; the lights of a car behind fill the visor and the eyes look away.
+
+They are drawn flat — a few tones, one accent, no glow or blur anywhere — which
+is a look and also a cost: nothing is redrawn while something moves. The still
+parts are drawn once and the moving parts are moved, with the same animations
+the eye uses, so a face adds no timer and no continuous animation: a gesture is
+a beat like any other and wakes the app only for its own few steps. Each gesture is
+counted like every other beat (at most six moves and half a second of animation)
+and so is on the battery menu, and absent in Low Power Mode, which keeps only
+lid movement. Worked out from the beat weights and costs, adding the gestures
+changes the mean animated seconds per beat by between −3.6% and −5.6% on wall
+power and between −2.9% and +1.1% on battery, depending on the helmet.
+`make spikes-offline` checks the helmets without a screen: outlines, how the eyes
+move, and that every gesture is that cheap, drives a channel of its own, and
+always puts everything back.
 
 **Launch at login** — registers with macOS via `SMAppService`. It shows up in
 System Settings → General → Login Items, and turning it off there wins: the app

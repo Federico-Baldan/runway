@@ -738,6 +738,25 @@ struct SettingsView: View {
             }
             .toggleStyle(.switch)
 
+            // The face. Small previews and not a menu of names: these are chosen
+            // by looking at them. Each tile is the helmet at rest, drawn once.
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Face")
+                    .font(.system(size: 12))
+                    .foregroundStyle(preferences.idleMark ? .primary : .tertiary)
+                LazyVGrid(
+                    columns: Array(repeating: GridItem(.fixed(72), spacing: 8), count: 3),
+                    alignment: .leading, spacing: 8
+                ) {
+                    ForEach(AvatarStyle.allCases, id: \.self) { style in
+                        avatarTile(style)
+                    }
+                }
+                .opacity(preferences.idleMark ? 1 : 0.4)
+            }
+            .padding(.leading, 38)
+            .disabled(!preferences.idleMark)
+
             // Indented under the toggle it belongs to, and dimmed with it: a
             // live-looking control for a mark that is switched off is a control
             // that does nothing.
@@ -765,7 +784,7 @@ struct SettingsView: View {
             HStack(spacing: 8) {
                 Text("Colour")
                     .font(.system(size: 12))
-                    .foregroundStyle(preferences.idleMark ? .primary : .tertiary)
+                    .foregroundStyle(eyeOptionsOn ? .primary : .tertiary)
                     .frame(width: markSettingLabelWidth, alignment: .leading)
                 HStack(spacing: 6) {
                     ForEach(IdleMarkTint.allCases, id: \.self) { tint in
@@ -774,16 +793,16 @@ struct SettingsView: View {
                 }
                 // `.disabled` dims a Picker for you and a plain Button not at
                 // all, so the swatches say it themselves.
-                .opacity(preferences.idleMark ? 1 : 0.4)
+                .opacity(eyeOptionsOn ? 1 : 0.4)
                 Spacer()
             }
             .padding(.leading, 38)
-            .disabled(!preferences.idleMark)
-            .help("The light in the resting mark. The menu bar icon is a "
-                  + "template image, so macOS keeps tinting that one.")
+            .disabled(!eyeOptionsOn)
+            .help("The light in the original eye. A helmet has its own colours. The "
+                  + "menu bar icon is a template image, so macOS keeps tinting that one.")
 
-            Toggle(isOn: $preferences.idleMarkGradient) {
-                Text("Gradient pupil")
+            Toggle(isOn: $preferences.idleMarkBreath) {
+                Text("Breathing light")
                     .font(.system(size: 12))
                     .foregroundStyle(preferences.idleMark ? .primary : .tertiary)
             }
@@ -791,22 +810,9 @@ struct SettingsView: View {
             .controlSize(.small)
             .padding(.leading, 38)
             .disabled(!preferences.idleMark)
-            .help("The pupil's highlight leans towards wherever it's looking, like a "
-                  + "catchlight. Off gives it a flat fill instead.")
-
-            Toggle(isOn: $preferences.idleMarkBreath) {
-                Text("Breathing light")
-                    .font(.system(size: 12))
-                    .foregroundStyle(preferences.idleMark && preferences.idleMarkGradient
-                                     ? .primary : .tertiary)
-            }
-            .toggleStyle(.switch)
-            .controlSize(.small)
-            .padding(.leading, 38)
-            .disabled(!preferences.idleMark || !preferences.idleMarkGradient)
-            .help("The pupil's light swells and fades with each small movement, like a "
-                  + "status LED. Never loops, and less often on battery. Off keeps the "
-                  + "gradient still.")
+            .help("The light swells and fades with each small movement, like a "
+                  + "status LED; on a helmet the LEDs brighten. Never loops, and less "
+                  + "often on battery. Off keeps it still.")
 
             Divider().padding(.vertical, 4)
 
@@ -1019,6 +1025,41 @@ struct SettingsView: View {
     /// Keeps the two indented mark controls on one column. "Where in the
     /// notch" is the long label; the swatches line up under its picker.
     private var markSettingLabelWidth: CGFloat { 124 }
+
+    /// The colour belongs to the original eye. A helmet has its own colours, so
+    /// the swatches step aside for one.
+    private var eyeOptionsOn: Bool {
+        preferences.idleMark && !preferences.idleMarkStyle.isHelmet
+    }
+
+    /// One face, drawn the way macOS draws a choice: the thing itself on the
+    /// island's black, a hairline, and a ring around the one that is on. A
+    /// button, so it is reachable from the keyboard and announced as selected.
+    private func avatarTile(_ style: AvatarStyle) -> some View {
+        let isSelected = preferences.idleMarkStyle == style
+        return Button {
+            preferences.idleMarkStyle = style
+        } label: {
+            VStack(spacing: 4) {
+                AvatarPreview(style: style, height: 32)
+                    .frame(width: 72, height: 44)
+                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.black))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(
+                            isSelected ? Color.accentColor : Color.primary.opacity(0.14),
+                            lineWidth: isSelected ? 2 : 0.5
+                        )
+                    )
+                Text(style.title)
+                    .font(.system(size: 10))
+                    .foregroundStyle(isSelected ? .primary : .secondary)
+            }
+        }
+        .buttonStyle(.plain)
+        .help(style.summary)
+        .accessibilityLabel(Text(style.title))
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : [.isButton])
+    }
 
     /// One tint, drawn the way macOS draws an accent choice: the colour itself,
     /// a hairline so the white one still has an edge on a light window, and a

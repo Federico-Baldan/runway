@@ -113,10 +113,31 @@ final class IdleMarkAnimator {
     /// The animation for the next change to `led`, scoped the same way
     /// `motion` is to `eye`.
     private(set) var ledMotion: Animation = .easeInOut(duration: 1)
-    /// Off when the pupil is a flat fill (`Preferences.idleMarkGradient`) or
-    /// the breathing light is switched off (`Preferences.idleMarkBreath`):
-    /// either way nothing would be drawn, so no breath is worth a wakeup.
+    /// Off when the breathing light is switched off
+    /// (`Preferences.idleMarkBreath`): nothing would be drawn, so no breath is
+    /// worth a wakeup.
     @ObservationIgnored var ledEnabled = true
+
+    /// A helmet's gestures, one channel each: 0 at rest, 1 at the top of the
+    /// gesture. What a channel moves is up to the helmet (see `HelmetSpec`); the
+    /// animator only writes the numbers. Channels of their own, like `led`, for
+    /// the same reason: every beat builds a fresh `Eye` and would reset a gesture
+    /// that is on its own clock.
+    private(set) var gestures = [CGFloat](repeating: 0, count: HelmetState.gestureSlots)
+    /// The animation for the next change to `gestures`, scoped the way `motion`
+    /// is to `eye`.
+    private(set) var gestureMotion: Animation = .easeOut(duration: 0.1)
+
+    /// Which face the mark wears. Written by the view. It decides whether the
+    /// gestures are in the draw at all, and which they are. Changing it drops a
+    /// gesture that is half way through, so one helmet's gesture is never left
+    /// on another's.
+    @ObservationIgnored var avatar: AvatarStyle = .classic {
+        didSet {
+            guard avatar != oldValue else { return }
+            resetGestures(.easeOut(duration: 0.1))
+        }
+    }
 
     @ObservationIgnored private var beatTask: Task<Void, Never>?
     /// Set while the pointer is on the island — the eye is looking back, so it
@@ -169,6 +190,21 @@ final class IdleMarkAnimator {
         led = level
     }
 
+    /// Move one gesture channel, saying how. With `resetGestures`, the only
+    /// writer of `gestures`.
+    private func setGesture(_ index: Int, _ level: CGFloat, _ animation: Animation) {
+        guard gestures.indices.contains(index), gestures[index] != level else { return }
+        gestureMotion = animation
+        gestures[index] = level
+    }
+
+    /// Every gesture back to rest, in one write.
+    private func resetGestures(_ animation: Animation) {
+        guard gestures.contains(where: { $0 != 0 }) else { return }
+        gestureMotion = animation
+        gestures = [CGFloat](repeating: 0, count: gestures.count)
+    }
+
     /// Keep a gaze axis inside its range once the mark's own lean is added.
     private func leaning(_ x: CGFloat, by amount: CGFloat) -> CGFloat {
         max(min(x + amount, 1), -1)
@@ -192,6 +228,7 @@ final class IdleMarkAnimator {
             pendingWake = false
             move(Eye(), .easeOut(duration: 0.11))
             light(0, .easeOut(duration: 0.3))
+            resetGestures(.easeOut(duration: 0.3))
             return
         }
 
@@ -240,6 +277,7 @@ final class IdleMarkAnimator {
         phaseBeatsLeft = 0
         move(Eye(), .easeOut(duration: 0.11))
         light(0, .easeOut(duration: 0.3))
+        resetGestures(.easeOut(duration: 0.2))
     }
 
     /// Hold still, remembering everything. The half of `stop` that is not a
@@ -260,6 +298,9 @@ final class IdleMarkAnimator {
     func pause() {
         beatTask?.cancel()
         beatTask = nil
+        // A gesture cancelled half way would leave a lamp lit or a visor lifted
+        // for as long as the loop stays stopped, asleep or not.
+        resetGestures(.easeOut(duration: 0.2))
         guard !isAsleep else { return }
         restLid = 0
         move(Eye(), .easeOut(duration: 0.11))
@@ -501,6 +542,9 @@ final class IdleMarkAnimator {
         case nodOff
         /// The waking yawn, played while still awake. Tired only.
         case yawn
+        /// One of the gestures only this helmet makes, by index. Never in the
+        /// draw for the original eye. See `HelmetSignature`.
+        case signature(AvatarStyle, Int)
 
         /// What this beat costs, for deciding whether it is affordable.
         ///
@@ -540,6 +584,10 @@ final class IdleMarkAnimator {
             case .heavyBlink: return (2, 0.50)
             case .nodOff: return (7, 2.38)
             case .yawn: return (5, 1.18)
+            // Counted from the steps themselves, like the rest, so it cannot drift.
+            case .signature(let style, let index):
+                let cost = HelmetSignature.cost(for: style, gesture: index)
+                return (cost.moves, cost.seconds)
             }
         }
 
@@ -609,8 +657,8 @@ final class IdleMarkAnimator {
         /// A breath is two moves and a couple of animated seconds, which is
         /// more compositor time than most beats themselves spend — so the
         /// wall gets one with every beat, battery one beat in four and a
-        /// shorter one, and Low Power Mode none: the pupil keeps its still
-        /// gradient there, which is all it had before.
+        /// shorter one, and Low Power Mode none: the light stays still there,
+        /// which is all it had before.
         var breath: (chance: Int, rise: Double, fall: Double) {
             switch self {
             case .wallPower: return (100, 1.1, 1.5)
@@ -687,6 +735,16 @@ final class IdleMarkAnimator {
             (2, .sneeze),
             (4, .sideEye)
         ]
+        // A helmet has things the eye does not, and they are worth being seen:
+        // often enough to notice, rarely enough to stay a surprise. Each gesture
+        // is in the draw on its own, so the more a helmet has the more it varies
+        // and not the more it fidgets. Their cost is the same kind of number as
+        // every other beat's, so on battery a gesture is in the draw only because
+        // it is frugal, and in Low Power Mode none is, being no lid movement.
+        for index in HelmetSignature.gestures(for: avatar).indices {
+            all.append((weight: 4, beat: .signature(avatar, index)))
+        }
+
         // Past halfway to dozing the tired beats come in, and they get more
         // likely the closer it gets: at the very end about one draw in six on
         // the wall (one in eight on battery, where only `heavyBlink` is
@@ -770,6 +828,64 @@ final class IdleMarkAnimator {
             await nodOff()
         case .yawn:
             await yawn()
+        case .signature(let style, let index):
+            await signature(style, index)
+        }
+    }
+
+    /// One of the gestures only this helmet makes, played from the steps
+    /// `HelmetSignature` lists for it: a few moves of its channel, sometimes with
+    /// the eyes in them.
+    ///
+    /// A step that takes the eyes somewhere gives way to somebody hovering, the
+    /// same rule `lookAround` follows. Every list ends with the channel at 0 and
+    /// the eyes home, which the spike checks; the last line here is the belt to
+    /// that pair of braces.
+    private func signature(_ style: AvatarStyle, _ index: Int) async {
+        let all = HelmetSignature.gestures(for: style)
+        guard all.indices.contains(index) else { return }
+        for step in all[index] {
+            guard !Task.isCancelled else { return }
+            guard avatar == style else {
+                // The face was changed under it. `avatar.didSet` has put the
+                // channel back; the eyes may be off to one side, and a blink keeps
+                // the gaze it finds, so they would stay there for several beats.
+                move(Eye(lid: restLid), .easeOut(duration: 0.1))
+                return
+            }
+            let animation = Self.animation(for: step)
+
+            if (step.gaze != nil || step.dilation != nil), !(step.looksAway && isAttentive) {
+                move(
+                    Eye(lid: restLid, gaze: step.gaze ?? eye.gaze, dilation: step.dilation ?? eye.dilation),
+                    animation
+                )
+            }
+            if let level = step.level { setGesture(step.channel, level, animation) }
+
+            // The move, then the hold. Waiting only for the hold would run the next
+            // step in this same turn, before SwiftUI has drawn a frame of this one:
+            // a channel sent to 1 and straight back to 0 is never seen at all.
+            if step.wait > 0 {
+                do {
+                    try await Task.sleep(for: .seconds(step.wait))
+                } catch {
+                    return // cancelled; `pause` puts everything back
+                }
+            }
+        }
+        resetGestures(.easeOut(duration: 0.1))
+    }
+
+    private static func animation(for step: SignatureStep) -> Animation {
+        switch step.curve {
+        case .easeOut: return .easeOut(duration: step.duration)
+        case .easeIn: return .easeIn(duration: step.duration)
+        case .easeInOut: return .easeInOut(duration: step.duration)
+        case .linear: return .linear(duration: step.duration)
+        case .spring: return .spring(duration: step.duration, bounce: 0.2)
+        // One millisecond is not seen: the next frame already shows the end.
+        case .instant: return .linear(duration: 0.001)
         }
     }
 
@@ -1878,7 +1994,8 @@ final class IdleMarkAnimator {
 ///
 /// ## Respiro
 ///
-/// The pupil's LED breathes (`IdleMark.ledCore`), and it is budgeted like
+/// The LED breathes — the original eye's pupil (`IdleMark.ledCore`), or a
+/// helmet's two LEDs brightening (`HelmetMark`) — and it is budgeted like
 /// everything else here rather than looped. Awake, a breath rides a beat: the
 /// rise goes out on the beat's first move and the fall on its last, so it
 /// adds at most one wakeup — the hold, when a blink is over before the light
@@ -1922,15 +2039,11 @@ struct IdleMark: View {
     var position: IdleMarkPosition = .center
     /// What colour the light is. See `IdleMarkTint` for why it is a short list.
     var tint: IdleMarkTint = .white
-    /// Whether the pupil leans a gradient into its gaze, or stays a flat fill.
-    /// See `pupilGradient`.
-    var gradient: Bool = true
-    /// Whether that gradient's light breathes. See `ledCore`. Meaningless
-    /// without the gradient, so the two are read together as `isBreathing`.
+    /// Whether the light breathes: the eye's core (see `ledCore`) or a helmet's
+    /// LEDs.
     var breathes: Bool = true
-
-    /// Respiro is on only when there is a gradient for it to light.
-    private var isBreathing: Bool { gradient && breathes }
+    /// Which face it wears: the original eye, or one of the helmets.
+    var style: AvatarStyle = .classic
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -1953,63 +2066,15 @@ struct IdleMark: View {
         )
     }
 
-    /// The pupil's fill: a small bright catchlight over the tint's resting
-    /// colour, not the two-stop opacity fade `StatusPalette.fill` uses on a
-    /// status disc (`[colour, colour.opacity(0.74)]`), which is what this
-    /// used to reuse directly. That formula does not carry over: a status
-    /// disc is 10–13 points across and sits on saturated colour of its own,
-    /// where a 26-point swing in alpha between two stops of the same shade
-    /// is a visible top-to-bottom shade. This pupil is a handful of points
-    /// across and already translucent, on the near-black shell — the same
-    /// swing anti-aliased into a smudge nobody could tell apart from a flat
-    /// fill.
-    ///
-    /// A `RadialGradient` reads at that size where the linear wash did not: a
-    /// concentrated bright spot against a dimmer field is what a catchlight
-    /// actually looks like, and stays legible even when the whole shape is
-    /// only a few points wide. The bright stop reuses `light(isAttentive:
-    /// true)` — the tint's own brighter tier, already defined for the
-    /// attentive state — rather than inventing a fourth colour just for this.
-    ///
-    /// Positioned by the gaze rather than fixed in the centre, for the same
-    /// reason the linear version was angled: the glint leans the way the
-    /// pupil is looking, like a real one would, and rides the same redraw
-    /// `gaze` already drives rather than scheduling one of its own. Nothing
-    /// here holds a timer or repeats; on a dark screen or with Reduce Motion
-    /// on, the gaze stops moving and so does this. The 0.35 factor keeps the
-    /// centre inside the shape at every gaze angle — a wider one could push
-    /// the bright spot off the pupil entirely at full deflection, which is
-    /// the same smudge this replaces, just relocated.
-    private var pupilGradient: RadialGradient {
-        let bright = tint.light(isAttentive: true)
-        let dim = tint.light(isAttentive: isAttentive).opacity(0.45)
-        let lean = animator.eye.gaze
-        return RadialGradient(
-            colors: [bright, dim],
-            center: UnitPoint(x: 0.5 - lean.width * 0.35, y: 0.5 - lean.height * 0.35),
-            startRadius: 0,
-            endRadius: eye * 0.68
-        )
-    }
-
-    /// The style actually handed to `.fill`: the gradient above when it is
-    /// wanted, or the flat colour it replaced, type-erased so one modifier can
-    /// carry either. Some people find the tilt distracting on a mark they are
-    /// staring at for hours, and it costs nothing to let them turn it off.
-    private var pupilFill: AnyShapeStyle {
-        gradient ? AnyShapeStyle(pupilGradient) : AnyShapeStyle(tint.light(isAttentive: isAttentive))
-    }
-
     /// "Respiro": the hot centre of the LED, swelling and fading with
     /// `IdleMarkAnimator.led`.
     ///
-    /// A layer of its own that only ever *scales and fades*, not a gradient
-    /// whose radius moves: those two are the animations SwiftUI and Core
-    /// Animation interpolate for certain, where a changing `RadialGradient`
-    /// inside `AnyShapeStyle` is not something this should bet a breath on.
-    /// White at the centre over the tint reads as the tint running hot,
-    /// which is what an LED does when it brightens. It leans with the gaze
-    /// the way the catchlight does, sitting a hair above centre at rest.
+    /// A layer of its own that only ever *scales and fades*: those two are the
+    /// animations SwiftUI and Core Animation interpolate for certain, so the
+    /// breath is not something that has to be redrawn as it goes. White at the
+    /// centre over the tint reads as the tint running hot, which is what an LED
+    /// does when it brightens. It leans with the gaze, sitting a hair above
+    /// centre at rest.
     private var ledCore: some View {
         let lean = animator.eye.gaze
         let hot = Color.white.opacity(tint == .white ? 0.95 : 0.72)
@@ -2034,11 +2099,28 @@ struct IdleMark: View {
     /// The halo swells with the core — a breath you can see at sixteen
     /// points is mostly the glow, not the disc.
     private var glowRadius: CGFloat {
-        guard isBreathing else { return height * 0.14 }
+        guard breathes else { return height * 0.14 }
         return height * (0.12 + 0.12 * animator.led)
     }
 
-    var body: some View {
+    /// What is drawn: one of the helmets, or the original eye.
+    @ViewBuilder
+    private var mark: some View {
+        if let spec = style.helmet {
+            HelmetMark(
+                style: style, spec: spec, height: height,
+                eye: animator.eye, led: animator.led, gestures: animator.gestures,
+                motion: animator.motion, ledMotion: animator.ledMotion,
+                gestureMotion: animator.gestureMotion,
+                isAttentive: isAttentive
+            )
+        } else {
+            classicMark
+        }
+    }
+
+    /// The original eye.
+    private var classicMark: some View {
         ZStack {
             // The mark itself: a notch, barely lighter than the black it sits
             // on. Meant to be found rather than noticed — under a real cutout
@@ -2062,9 +2144,9 @@ struct IdleMark: View {
             // one and not the menu bar's: a status item is a template image and
             // macOS decides what colour it comes out.
             Capsule(style: .continuous)
-                .fill(pupilFill)
+                .fill(tint.light(isAttentive: isAttentive))
                 .overlay {
-                    if isBreathing { ledCore }
+                    if breathes { ledCore }
                 }
                 .clipShape(Capsule(style: .continuous))
                 .frame(
@@ -2083,10 +2165,15 @@ struct IdleMark: View {
                 .scaleEffect(isAttentive ? 1.12 : 1)
                 .animation(.spring(duration: 0.30, bounce: 0.24), value: isAttentive)
         }
+    }
+
+    var body: some View {
+        mark
         .frame(width: width, height: height)
         .onAppear {
+            animator.avatar = style
             animator.bias = position.gazeBias
-            animator.ledEnabled = isBreathing
+            animator.ledEnabled = breathes
             // Attention goes in through `retain`, not as a bare assignment to
             // the animator's flag. The flag is the half of arriving attentive
             // that changes nothing, and under a cutout arriving is the only
@@ -2127,7 +2214,8 @@ struct IdleMark: View {
         }
         .onChange(of: isAttentive) { _, attentive in animator.attend(attentive) }
         .onChange(of: position) { _, new in animator.bias = new.gazeBias }
-        .onChange(of: isBreathing) { _, new in
+        .onChange(of: style) { _, new in animator.avatar = new }
+        .onChange(of: breathes) { _, new in
             animator.ledEnabled = new
             // Turned off mid-breath: put the light out rather than leave it
             // lit until the next beat comes round to lower it.

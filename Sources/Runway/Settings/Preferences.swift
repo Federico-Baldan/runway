@@ -96,8 +96,10 @@ public final class Preferences {
         static let idleMark = "island.idleMark"
         static let idleMarkPosition = "island.idleMarkPosition"
         static let idleMarkTint = "island.idleMarkTint"
-        static let idleMarkGradient = "island.idleMarkGradient"
         static let idleMarkBreath = "island.idleMarkBreath"
+        /// The switch that is gone. Read once, to carry its meaning over.
+        static let legacyIdleMarkGradient = "island.idleMarkGradient"
+        static let idleMarkStyle = "island.idleMarkStyle"
         static let approvalNotifications = "notify.approvals"
         static let approvalsFromOthers = "actors.approvalsFromOthers"
         static let terraformPlans = "island.terraformPlans"
@@ -170,10 +172,24 @@ public final class Preferences {
         self.idleMarkTint = IdleMarkTint(
             rawValue: defaults.string(forKey: Key.idleMarkTint) ?? ""
         ) ?? .white
-        // On by default: the gradient is what the pupil has shipped with since
-        // it was added, so an existing install should not see it vanish.
-        self.idleMarkGradient = defaults.object(forKey: Key.idleMarkGradient) as? Bool ?? true
-        self.idleMarkBreath = defaults.object(forKey: Key.idleMarkBreath) as? Bool ?? true
+        // The breath used to be drawn only with the gradient pupil on, so someone
+        // who had turned that off had no breath. The switch is gone; carrying its
+        // meaning over once keeps their mark still, and the old key goes with it.
+        var breath = defaults.object(forKey: Key.idleMarkBreath) as? Bool ?? true
+        if let legacyGradient = defaults.object(forKey: Key.legacyIdleMarkGradient) as? Bool {
+            if !legacyGradient {
+                breath = false
+                defaults.set(false, forKey: Key.idleMarkBreath)
+            }
+            defaults.removeObject(forKey: Key.legacyIdleMarkGradient)
+        }
+        self.idleMarkBreath = breath
+        // An unknown or missing value falls back to the default face, so a value
+        // written by a newer build and read by an older one cannot leave the
+        // mark with no face at all.
+        self.idleMarkStyle = AvatarStyle(
+            rawValue: defaults.string(forKey: Key.idleMarkStyle) ?? ""
+        ) ?? .default
         self.approvalNotifications = (defaults.object(forKey: Key.approvalNotifications) as? Bool)
             ?? EnvironmentDefault.bool(EnvironmentDefault.notifyApprovals)
             ?? true
@@ -313,18 +329,17 @@ public final class Preferences {
         didSet { defaults.set(idleMarkTint.rawValue, forKey: Key.idleMarkTint) }
     }
 
-    /// Whether the pupil's fill leans a gradient into its own gaze, or stays a
-    /// flat fill. See `IdleMark.pupilGradient` for what the gradient does.
-    public var idleMarkGradient: Bool {
-        didSet { defaults.set(idleMarkGradient, forKey: Key.idleMarkGradient) }
-    }
-
-    /// Whether the pupil's light breathes ("Respiro") — the core and halo
-    /// swelling with each beat. Only meaningful with the gradient on; off
-    /// keeps the still gradient and spends nothing on the breath. See
-    /// `IdleMark.ledCore`.
+    /// Whether the light breathes ("Respiro"): the eye's core and halo swelling
+    /// with each beat, or a helmet's LEDs brightening. Off keeps it still and
+    /// spends nothing on the breath. See `IdleMark.ledCore` and `HelmetMark`.
     public var idleMarkBreath: Bool {
         didSet { defaults.set(idleMarkBreath, forKey: Key.idleMarkBreath) }
+    }
+
+    /// Which face the resting mark wears: the original eye, or one of the
+    /// helmets. See `AvatarStyle`.
+    public var idleMarkStyle: AvatarStyle {
+        didSet { defaults.set(idleMarkStyle.rawValue, forKey: Key.idleMarkStyle) }
     }
 
     /// Haptic feedback on run transitions.
