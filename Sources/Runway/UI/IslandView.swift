@@ -813,7 +813,7 @@ struct TerraformPlanView: View {
     private var shownResources: [TerraformPlanSummary.ResourceChange] {
         guard plan.resources.count > Self.rowLimit else { return plan.resources }
         let priority: [TerraformPlanSummary.ResourceChange.Category] = [
-            .destroy, .replace, .update, .create, .moved, .read,
+            .destroy, .replace, .forget, .update, .create, .imported, .moved, .read,
         ]
         return plan.resources
             .enumerated()
@@ -900,29 +900,62 @@ struct TerraformPlanView: View {
         }
     }
 
+    /// A plan that failed, or one Terraform says is not the whole story, is
+    /// never drawn as a green "no changes" however empty it is — the counts
+    /// of a failed plan are only what was planned before it stopped, and a
+    /// partial one says nothing about what a later round will do.
     @ViewBuilder
     private var counts: some View {
-        if plan.isNoOpPlan {
-            HStack(spacing: 4) {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 8, weight: .bold))
-                Text("no changes")
-                    .font(.system(size: 9.5, design: .monospaced))
+        HStack(spacing: 10) {
+            if plan.isErrored {
+                flag(
+                    "planning failed", color: StatusPalette.failure,
+                    help: "Terraform reported an error while planning. What is listed is only what it had planned before that."
+                )
             }
-            .foregroundStyle(StatusPalette.success.opacity(0.85))
-        } else {
-            HStack(spacing: 10) {
+            if plan.isNoOpPlan {
+                if !plan.isErrored && !plan.isPartial {
+                    HStack(spacing: 4) {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 8, weight: .bold))
+                        Text("no changes")
+                            .font(.system(size: 9.5, design: .monospaced))
+                    }
+                    .foregroundStyle(StatusPalette.success.opacity(0.85))
+                }
+            } else {
                 statChip(count: plan.toAdd, label: "to add", color: StatusPalette.success)
                 statChip(count: plan.toChange, label: "to change", color: StatusPalette.running)
                 statChip(count: plan.toReplace, label: "to replace", color: StatusPalette.approval)
                 statChip(count: plan.toDestroy, label: "to destroy", color: StatusPalette.failure)
+                statChip(count: plan.toImport, label: "to import", color: StatusPalette.running)
+                statChip(count: plan.toForget, label: "to forget", color: StatusPalette.approval)
+                statChip(count: plan.toInvoke, label: "to invoke", color: StatusPalette.running)
                 if let unchanged = plan.unchangedCount, unchanged > 0 {
                     Text("\(unchanged) unchanged")
                         .font(.system(size: 9, design: .monospaced))
                         .foregroundStyle(.white.opacity(0.35))
                 }
             }
+            if plan.isPartial {
+                flag(
+                    "partial plan", color: StatusPalette.approval,
+                    help: "Terraform says applying this plan will not finish the job: another plan is needed first."
+                )
+            }
         }
+    }
+
+    private func flag(_ text: String, color: Color, help: String) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 8))
+            Text(text)
+                .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
+                .lineLimit(1)
+        }
+        .foregroundStyle(color.opacity(0.95))
+        .help(help)
     }
 
     @ViewBuilder
@@ -931,9 +964,11 @@ struct TerraformPlanView: View {
             HStack(spacing: 3) {
                 Text("\(count)")
                     .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
+                    .lineLimit(1)
                 Text(label)
                     .font(.system(size: 9, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.5))
+                    .lineLimit(1)
             }
             .foregroundStyle(color.opacity(0.95))
         }
@@ -1090,6 +1125,8 @@ struct TerraformPlanView: View {
         case .destroy: return "−"
         case .read: return "»"
         case .moved: return "→"
+        case .imported: return "↓"
+        case .forget: return "∅"
         }
     }
 
@@ -1099,6 +1136,8 @@ struct TerraformPlanView: View {
         case .update: return StatusPalette.running
         case .replace: return StatusPalette.approval
         case .destroy: return StatusPalette.failure
+        case .imported: return StatusPalette.running
+        case .forget: return StatusPalette.approval
         case .read, .moved: return StatusPalette.quiet
         }
     }

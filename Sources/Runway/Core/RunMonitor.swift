@@ -1166,10 +1166,18 @@ public actor RunMonitor {
                 budget -= 1
                 do {
                     let log = try await client.fetchJobLog(repository: repository, jobID: job.id)
-                    let plans = TerraformPlanParser.reconcile(
-                        TerraformPlanParser.parse(log: log),
-                        stepNames: Self.planStepNames(of: job)
-                    )
+                    // Parsed — and reconciled with the steps — off the actor. A
+                    // log can be megabytes, parsing it is plain CPU work, and
+                    // done here it would hold every other run's poll behind it
+                    // for as long as it takes. The step names are read first,
+                    // here, so only plain values cross over.
+                    let stepNames = Self.planStepNames(of: job)
+                    let plans = await Task.detached(priority: .utility) {
+                        TerraformPlanParser.reconcile(
+                            TerraformPlanParser.parse(log: log),
+                            stepNames: stepNames
+                        )
+                    }.value
                     if !plans.isEmpty {
                         planCache[job.id] = plans
                         copy.terraformPlans = plans

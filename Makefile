@@ -102,6 +102,7 @@ spikes: spikes-offline
 	@echo "── schema ──" && $(MAKE) -s spike-run SPIKE=SchemaVerify SRC="$(API)/GitHubClient.swift $(API)/Models.swift $(API)/TerraformPlan.swift $(API)/Approvals.swift $(API)/DeployTarget.swift $(API)/RunScope.swift $(API)/ETagStore.swift Sources/Runway/Auth/Keychain.swift"
 
 spikes-offline:
+	@echo "── terraform plans ──" && $(MAKE) -s spike-run SPIKE=TerraformPlanVerify SRC="spike/TerraformPlanFixtures.swift $(API)/TerraformPlan.swift Sources/Runway/Core/TerraformPlanParser.swift"
 	@echo "── status ──"    && $(MAKE) -s spike-run SPIKE=StatusFusionVerify   SRC="$(API)/Models.swift $(API)/TerraformPlan.swift $(API)/Approvals.swift $(API)/DeployTarget.swift"
 	@echo "── codable ──"   && $(MAKE) -s spike-run SPIKE=CodableVerify        SRC="$(API)/Models.swift $(API)/TerraformPlan.swift $(API)/Approvals.swift $(API)/DeployTarget.swift"
 	@echo "── approvals ──" && $(MAKE) -s spike-run SPIKE=ApprovalVerify      SRC="$(API)/Models.swift $(API)/TerraformPlan.swift $(API)/Approvals.swift $(API)/DeployTarget.swift"
@@ -117,8 +118,8 @@ spikes-offline:
 	@echo "── dismissal ──" && $(MAKE) -s spike-run SPIKE=DismissVerify      SRC="Sources/Runway/Core/DismissedRuns.swift Sources/Runway/Core/RunMonitor.swift Sources/Runway/Core/TerraformPlanParser.swift $(API)/GitHubClient.swift $(API)/Models.swift $(API)/TerraformPlan.swift $(API)/Approvals.swift $(API)/DeployTarget.swift $(API)/RunScope.swift $(API)/ETagStore.swift Sources/Runway/Auth/Keychain.swift"
 	@echo "── centering ──" && $(MAKE) -s spike-run SPIKE=CenteringVerify      SRC="Sources/Runway/UI/NotchMath.swift"
 	@echo "── notch ──"     && $(MAKE) -s spike-run SPIKE=NotchPlacementVerify SRC="Sources/Runway/UI/NotchMath.swift"
-	@echo "── sso ──"       && $(MAKE) -s spike-run SPIKE=SSOVerify           SRC="$(API)/GitHubClient.swift $(API)/Models.swift $(API)/TerraformPlan.swift $(API)/Approvals.swift $(API)/DeployTarget.swift $(API)/RunScope.swift $(API)/ETagStore.swift Sources/Runway/Auth/Keychain.swift"
 	@echo "── helmets ──"   && $(MAKE) -s spike-run SPIKE=HelmetVerify SRC="Sources/Runway/UI/AvatarStyle.swift Sources/Runway/UI/HelmetGeometry.swift Sources/Runway/UI/HelmetSpec.swift Sources/Runway/UI/HelmetSignature.swift"
+	@echo "── sso ──"       && $(MAKE) -s spike-run SPIKE=SSOVerify           SRC="$(API)/GitHubClient.swift $(API)/Models.swift $(API)/TerraformPlan.swift $(API)/Approvals.swift $(API)/DeployTarget.swift $(API)/RunScope.swift $(API)/ETagStore.swift Sources/Runway/Auth/Keychain.swift"
 	@echo "── 304 ──"      && $(MAKE) -s spike-run SPIKE=ConditionalVerify SRC="$(API)/GitHubClient.swift $(API)/Models.swift $(API)/TerraformPlan.swift $(API)/Approvals.swift $(API)/DeployTarget.swift $(API)/RunScope.swift $(API)/ETagStore.swift Sources/Runway/Auth/Keychain.swift"
 	@echo "── dates ──"    && $(MAKE) -s spike-run SPIKE=DateVerify        SRC="$(API)/GitHubClient.swift $(API)/Models.swift $(API)/TerraformPlan.swift $(API)/Approvals.swift $(API)/DeployTarget.swift $(API)/RunScope.swift $(API)/ETagStore.swift Sources/Runway/Auth/Keychain.swift"
 
