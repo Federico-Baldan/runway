@@ -142,6 +142,33 @@ enum HelmetVerify {
                 }
             }
 
+            // Legible at the size the notch draws it: a dark shell on black is
+            // 1.1 to 1.5 times the black, a pinstripe at 24 points is under a
+            // device pixel, and a screw is a speck.
+            let notchPPU: CGFloat = style.restHeight / HelmetSpec.designHeight
+            let pixel = HelmetSpec.smallestFeature
+            for layer in [HelmetLayerID.below, .above, .highlights] {
+                let drawn = spec.draws(for: layer, pointsPerUnit: notchPPU)
+                check("\(layer): no stroke is thinner than a device pixel at the notch's size",
+                      drawn.allSatisfy { $0.stroke == nil || $0.strokeWidth * notchPPU >= pixel - 0.0001 })
+                check("\(layer): no filled speck is smaller than a device pixel at the notch's size",
+                      drawn.allSatisfy { $0.stroke != nil || $0.fill == nil || HelmetSpec.featureSize(of: $0.path) * notchPPU >= pixel - 0.0001 })
+                check("\(layer): at the design size nothing is left out", spec.draws(for: layer, pointsPerUnit: 1).count == spec.draws(for: layer).count)
+            }
+            check("the shell and the livery survive the rules (the shell, the shadow and a light at least)",
+                  spec.draws(for: .below, pointsPerUnit: notchPPU).count >= 3)
+            let edge = spec.draws(for: .edge, pointsPerUnit: notchPPU)
+            check("the edge light is one stroke, clipped to the shell, at least a device pixel wide inside it",
+                  edge.count == 1 && edge[0].clipToShell && edge[0].strokeWidth * notchPPU / 2 >= pixel)
+            // Relative luminance of the light over the notch's black, which is what it sits against.
+            func luminance(_ c: HColor) -> Double {
+                func lin(_ v: Double) -> Double { v <= 0.03928 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+                return 0.2126 * lin(c.red * c.alpha) + 0.7152 * lin(c.green * c.alpha) + 0.0722 * lin(c.blue * c.alpha)
+            }
+            let ratio = (luminance(spec.edge) + 0.05) / 0.05
+            print("  \(style.rawValue): edge light is \(String(format: "%.1f", ratio)):1 against black, shell \(String(format: "%.2f", (luminance(HColor(0x2B2D32)) + 0.05) / 0.05)):1 for comparison")
+            check("the edge light is at least 3:1 against the black of the notch (WCAG 1.4.11)", ratio >= 3)
+
             // The gestures.
             let gestures = HelmetSignature.gestures(for: style)
             check("it has at least one gesture, and no more than there are channels", !gestures.isEmpty && gestures.count <= HelmetState.gestureSlots)
@@ -228,6 +255,15 @@ enum HelmetVerify {
             check("no two gestures of a helmet are the same", distinct.count == gestures.count)
         }
 
+        // How tall each face is drawn: the eye as it always was, a helmet bigger
+        // because it has more in it, and always inside the 32 point hover row.
+        check("the eye is drawn as it always was: 16 points at rest, 13 on hover",
+              AvatarStyle.classic.restHeight == 16 && AvatarStyle.classic.hoverHeight == 13)
+        check("every helmet is drawn larger than the eye, at rest and on hover",
+              AvatarStyle.allCases.filter(\.isHelmet).allSatisfy { $0.restHeight > 16 && $0.hoverHeight > 13 })
+        check("a helmet fits in the 32 point hover row with room above and below",
+              AvatarStyle.allCases.allSatisfy { $0.hoverHeight <= 24 })
+
         // The original eye has no gesture and costs nothing extra.
         print()
         print("── the original eye ──")
@@ -238,7 +274,8 @@ enum HelmetVerify {
         if arguments.count >= 3, arguments[1] == "svg" {
             print()
             print("── svg ──")
-            writeSVGs(into: arguments[2])
+            // `svg <dir> [height in points]`: the height decides which details are left in.
+            writeSVGs(into: arguments[2], height: arguments.count >= 4 ? CGFloat(Double(arguments[3]) ?? 224) : HelmetSpec.designHeight)
         }
 
         print()
@@ -320,12 +357,15 @@ enum HelmetVerify {
 
     static func svg(_ draws: [HDraw]) -> String { draws.map { svg($0) }.joined(separator: "\n") }
 
-    static func render(_ spec: HelmetSpec, _ s: HelmetState) -> String {
+    /// `height` is how tall the helmet is drawn, in points, which decides what the
+    /// legibility rules leave in (see `HelmetSpec.draws(for:pointsPerUnit:)`).
+    static func render(_ spec: HelmetSpec, _ s: HelmetState, height: CGFloat = HelmetSpec.designHeight) -> String {
+        let ppu = height / HelmetSpec.designHeight
         var out: [String] = []
         out.append("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"-156 -112 312 224\" width=\"624\" height=\"448\">")
         out.append("<defs><clipPath id=\"shell\"><path d=\"\(d(HelmetSpec.shell))\"/></clipPath><clipPath id=\"window\"><path d=\"\(d(spec.window.path))\"/></clipPath></defs>")
         out.append("<rect x=\"-156\" y=\"-112\" width=\"312\" height=\"224\" fill=\"#000\"/>")
-        out.append(svg(spec.draws(for: .below)))
+        out.append(svg(spec.draws(for: .below, pointsPerUnit: ppu)))
         out.append("<g clip-path=\"url(#window)\">")
         out.append(svg(spec.draws(for: .glass)))
         for rect in spec.eyeRects(s) {
@@ -333,7 +373,7 @@ enum HelmetVerify {
             out.append("<rect x=\"\(rect.minX)\" y=\"\(rect.minY)\" width=\"\(rect.width)\" height=\"\(rect.height)\" rx=\"\(r)\" fill=\"\(hex(spec.eyes.dim))\"/>")
             out.append("<rect x=\"\(rect.minX)\" y=\"\(rect.minY)\" width=\"\(rect.width)\" height=\"\(rect.height)\" rx=\"\(r)\" fill=\"\(hex(spec.eyes.bright))\" fill-opacity=\"\(s.led)\"/>")
         }
-        out.append("<g transform=\"translate(\(-s.gazeX * 5) \(-s.gazeY * 3))\">\(svg(spec.draws(for: .highlights)))</g>")
+        out.append("<g transform=\"translate(\(-s.gazeX * 5) \(-s.gazeY * 3))\">\(svg(spec.draws(for: .highlights, pointsPerUnit: ppu)))</g>")
         out.append("<g transform=\"translate(0 \(spec.plateOffsetY(s)))\">\(svg(spec.draws(for: .plate)))")
         if let flash = spec.edgeFlashDraw {
             var faded = flash
@@ -346,7 +386,8 @@ enum HelmetVerify {
         }
         out.append("</g>")
         out.append(svg(spec.draws(for: .rim)))
-        out.append(svg(spec.draws(for: .above)))
+        out.append(svg(spec.draws(for: .above, pointsPerUnit: ppu)))
+        out.append(svg(spec.draws(for: .edge, pointsPerUnit: ppu)))
         for (index, part) in spec.dynamics.enumerated() where !part.insideWindow {
             out.append(dynamic(spec, part, index, s))
         }
@@ -360,7 +401,7 @@ enum HelmetVerify {
         return "<g opacity=\"\(m.opacity)\" transform=\"\(transform)\">\(svg(spec.draws(for: .dynamic(index))))</g>"
     }
 
-    static func writeSVGs(into directory: String) {
+    static func writeSVGs(into directory: String, height: CGFloat = HelmetSpec.designHeight) {
         try? FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
         let poses: [(String, HelmetState)] = [
             ("rest", .rest),
@@ -374,7 +415,7 @@ enum HelmetVerify {
             for (name, state) in poses {
                 let path = "\(directory)/\(style.rawValue)-\(name).svg"
                 do {
-                    try render(spec, state).write(toFile: path, atomically: true, encoding: .utf8)
+                    try render(spec, state, height: height).write(toFile: path, atomically: true, encoding: .utf8)
                 } catch {
                     print("  FAIL  could not write \(path): \(error)")
                     failures += 1

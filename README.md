@@ -505,6 +505,15 @@ flashes its papaya edge; the number shines; the eyes shiver like an engine; it
 winks. Endurance: a pit-lane strobe; the sun strip dips; a light runs along the
 chevrons; the lights of a car behind fill the visor and the eyes look away.
 
+A helmet has far more in it than the eye, so it is drawn bigger in the notch —
+24 points tall, where the eye is 16 — and made legible for that size: its shell
+is dark graphite on the black of the cutout, barely 1.5 times the black, and
+anything under 3:1 reads as not there (WCAG 1.4.11), so a light runs along its
+silhouette, as Apple suggests for a dark icon on a dark ground. Details smaller
+than a device pixel (a screw, a vent) are left out and a pinstripe thinner than
+one is widened to it, which is what icon sets do when they draw a second, simpler
+set for the small sizes. The original eye is still in Settings → Face, as it was.
+
 They are drawn flat — a few tones, one accent, no glow or blur anywhere — which
 is a look and also a cost: nothing is redrawn while something moves. The still
 parts are drawn once and the moving parts are moved, with the same animations

@@ -72,6 +72,11 @@ struct HelmetSpec: Sendable {
 
     /// Shell, livery, shadow and light, painted first and clipped to the shell.
     var below: [HDraw]
+    /// The light along the silhouette, so a dark shell does not melt into the
+    /// black of the notch. Each helmet has its own, a pale tint of its livery,
+    /// and not one grey for all, which reads as a sticker border. See
+    /// `draws(for:pointsPerUnit:)`.
+    var edge: HColor
     var window: HWindow
     var eyes: HEyes
     /// A thin glint on the glass that slides against the gaze.
@@ -179,6 +184,8 @@ enum HelmetLayerID: Hashable, Sendable {
     case plateFlash
     case rim
     case above
+    /// The light along the silhouette, drawn over everything that is still.
+    case edge
     case dynamic(Int)
 }
 
@@ -192,8 +199,73 @@ extension HelmetSpec {
         case .plateFlash: return edgeFlashDraw.map { [$0] } ?? []
         case .rim: return [.line(window.path, window.rim, window.rimWidth)]
         case .above: return above
+        case .edge: return [.line(HelmetSpec.shell, edge, 0, clip: true)]
         case .dynamic(let index): return dynamics.indices.contains(index) ? dynamics[index].draws : []
         }
+    }
+}
+
+// MARK: - Legible at the size it is drawn
+
+extension HelmetSpec {
+    /// The smallest thing worth drawing, in points: one device pixel on a
+    /// Retina screen. Thinner than that, a stroke is not drawn thin but not at
+    /// all, and a speck is anti-aliased to a smudge that reads as dirt.
+    static let smallestFeature: CGFloat = 0.5
+    /// How much of the edge light shows inside the silhouette, in points.
+    static let edgeLightWidth: CGFloat = 0.7
+
+    /// What to draw in a layer when the helmet is `s` points per design unit
+    /// tall, which is the same helmet made legible rather than a second one.
+    ///
+    /// The helmets are drawn on a 312 x 224 grid and the notch shows one about
+    /// 16 to 24 points tall, so a design unit is a tenth of a point: a 4-unit
+    /// pinstripe is under half a device pixel and a screw is a dot. Icon sets
+    /// ship a second, simpler drawing for the small sizes for the same reason
+    /// (Octicons' 16px set has fewer elements than its 24px one). Here the
+    /// rule is one number: a stroke thinner than `smallestFeature` is widened to
+    /// it, and a filled shape smaller than it is left out. The livery, the
+    /// number and the stripes stay, the vents and the screws go.
+    ///
+    /// The silhouette gets a light as well. The shells are dark graphite on the
+    /// black of the notch, 1.1 to 1.5 times the black's luminance, and
+    /// anything under 3:1 is taken as not there (WCAG 1.4.11); Apple's own
+    /// guidance for a dark icon on a dark ground is a slight border.
+    func draws(for layer: HelmetLayerID, pointsPerUnit s: CGFloat) -> [HDraw] {
+        guard s > 0 else { return draws(for: layer) }
+        switch layer {
+        case .edge:
+            // Centred on the outline and clipped to it, so only the inner half
+            // shows: twice the width that is wanted.
+            return [.line(HelmetSpec.shell, edge, 2 * HelmetSpec.edgeLightWidth / s, clip: true)]
+        case .below, .above, .highlights:
+            return draws(for: layer).compactMap { HelmetSpec.legible($0, pointsPerUnit: s) }
+        default:
+            return draws(for: layer)
+        }
+    }
+
+    static func legible(_ draw: HDraw, pointsPerUnit s: CGFloat) -> HDraw? {
+        let least = smallestFeature / s
+        var result = draw
+        if result.stroke != nil { result.strokeWidth = max(result.strokeWidth, least) }
+        if result.stroke == nil, result.fill != nil, featureSize(of: result.path) < least { return nil }
+        return result
+    }
+
+    /// The shorter side of the box a path fits in.
+    static func featureSize(of path: HPath) -> CGFloat {
+        var xs: [CGFloat] = [], ys: [CGFloat] = []
+        for seg in path {
+            switch seg {
+            case .move(let p), .line(let p): xs.append(p.x); ys.append(p.y)
+            case .curve(let to, let c1, let c2):
+                xs += [to.x, c1.x, c2.x]; ys += [to.y, c1.y, c2.y]
+            case .close: break
+            }
+        }
+        guard let x0 = xs.min(), let x1 = xs.max(), let y0 = ys.min(), let y1 = ys.max() else { return 0 }
+        return min(x1 - x0, y1 - y0)
     }
 }
 
@@ -287,7 +359,7 @@ private func finish(base: UInt32, light: UInt32, shade: Double, livery: [HDraw])
 
 /// An astronaut: a big window with a sun visor that is also the eyelid.
 private func astronaut(
-    base: UInt32, light: UInt32, shade: Double = 30, rim: UInt32, rimWidth: CGFloat = 13,
+    base: UInt32, light: UInt32, edge: UInt32, shade: Double = 30, rim: UInt32, rimWidth: CGFloat = 13,
     bands: [HDraw], window: HPath, top: CGFloat, bottom: CGFloat, width: CGFloat,
     visor: (fill: UInt32, edge: UInt32, hi: UInt32, lo: UInt32), eye: (dim: UInt32, bright: UInt32),
     above: [HDraw], dynamics: [HDynamic], raisesVisor: Bool = false
@@ -296,6 +368,7 @@ private func astronaut(
     let half = (bottom - top + 10) / 2
     return HelmetSpec(
         below: finish(base: base, light: light, shade: shade, livery: bands),
+        edge: HColor(edge, 0.9),
         window: HWindow(
             path: window, glass: HColor(0x0A0B0D), rim: HColor(rim), rimWidth: rimWidth,
             top: top, bottom: bottom, width: width, restFraction: 0.2
@@ -319,7 +392,7 @@ private func astronaut(
 
 /// A racing helmet: a livery, a visor with a precise outline, a sun visor.
 private func racer(
-    base: UInt32, light: UInt32, shade: Double = 34, livery: [HDraw],
+    base: UInt32, light: UInt32, edge: UInt32, shade: Double = 34, livery: [HDraw],
     window: HPath, top: CGFloat, bottom: CGFloat, width: CGFloat, eyeY: CGFloat,
     glass: UInt32 = 0x0D0E11, rim: UInt32 = 0x040405, restFraction: CGFloat = 0,
     plate: (fill: UInt32, edge: UInt32, flash: UInt32), eye: (dim: UInt32, bright: UInt32),
@@ -327,6 +400,7 @@ private func racer(
 ) -> HelmetSpec {
     HelmetSpec(
         below: finish(base: base, light: light, shade: shade, livery: livery),
+        edge: HColor(edge, 0.9),
         window: HWindow(
             path: window, glass: HColor(glass), rim: HColor(rim), rimWidth: 11,
             top: top, bottom: bottom, width: width, restFraction: restFraction
@@ -347,7 +421,7 @@ extension HelmetSpec {
     /// Graphite, one orange band, a gold visor. The one everything else was
     /// measured against.
     static let apollo = astronaut(
-        base: 0x2B2D32, light: 0x454951, rim: 0x17181C,
+        base: 0x3B3E45, light: 0x585C66, edge: 0xCDBFA8, rim: 0x17181C,
         bands: [stroke(curve([(-166, -64), (-80, -94), (80, -94), (166, -64)]), 0xE8580C, 8, clip: true)],
         window: box(0, -6, 238, 116, 52), top: -64, bottom: 52, width: 238,
         visor: (fill: 0xC4932D, edge: 0x6A4A10, hi: 0xE6C264, lo: 0x98701F),
@@ -376,7 +450,7 @@ extension HelmetSpec {
     /// A round window, a silver visor, a red band; a lamp on the left and a
     /// camera on the right that the signature switches on.
     static let orlan = astronaut(
-        base: 0x25272C, light: 0x3F434B, rim: 0x15161A,
+        base: 0x34373E, light: 0x535862, edge: 0xB8C0CD, rim: 0x15161A,
         bands: [
             stroke(curve([(-166, -74), (-80, -90), (80, -90), (166, -74)]), 0xD62828, 9, clip: true),
             stroke(curve([(-166, -63), (-80, -79), (80, -79), (166, -63)]), 0xE8E8E8, 3, clip: true),
@@ -412,7 +486,7 @@ extension HelmetSpec {
     /// Nearly black, a single white line, an iridium-blue visor. The darkest.
     /// The signature is a glint that sweeps the glass.
     static let stealth = astronaut(
-        base: 0x141519, light: 0x2B2D34, shade: 40, rim: 0x07080A, rimWidth: 12,
+        base: 0x22252B, light: 0x3C404A, edge: 0xBBD3EC, shade: 40, rim: 0x07080A, rimWidth: 12,
         bands: [stroke(curve([(-166, -66), (-80, -92), (80, -92), (166, -66)]), 0xE6E6E6, 3.4, clip: true)],
         window: box(0, -7, 250, 106, 46), top: -60, bottom: 46, width: 250,
         visor: (fill: 0x3F6F98, edge: 0x16293B, hi: 0x6EA2CC, lo: 0x2A4F70),
@@ -451,7 +525,7 @@ extension HelmetSpec {
     /// notch for the nose. The tab on the visor flicks, and the sun visor dips so
     /// its papaya edge comes down into the window and flashes.
     static let papaya = racer(
-        base: 0x17181B, light: 0x2F3138,
+        base: 0x26282E, light: 0x42454E, edge: 0xE3C9AA,
         livery: [
             stroke(curve([(-170, -34), (-90, -72), (0, -84), (90, -72), (170, -34)]), 0xF1F1F1, 4, clip: true),
             stroke(curve([(-170, -50), (-90, -88), (0, -100), (90, -88), (170, -50)]), 0xFF7A00, 18, clip: true),
@@ -487,7 +561,7 @@ extension HelmetSpec {
     /// Matt gunmetal, hi-vis chevrons, a sun strip that never goes away. The
     /// signature is a pit-lane strobe.
     static let endurance = racer(
-        base: 0x2A2D32, light: 0x42464D, shade: 38,
+        base: 0x3A3E45, light: 0x575B64, edge: 0xC7D585, shade: 38,
         livery: [
             stroke(curve([(-176, -44), (0, -106), (176, -44)]), 0xD8FF1A, 9, clip: true),
             stroke(curve([(-176, -28), (0, -90), (176, -28)]), 0x050607, 9, clip: true),

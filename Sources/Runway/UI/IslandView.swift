@@ -171,7 +171,7 @@ struct IslandView: View {
                 // at all in this state, and what it costs.
                 IdleMark(
                     animator: model.idleMarkAnimator,
-                    height: 16,
+                    height: model.idleMarkStyle.restHeight,
                     isSuspended: model.isSuspended,
                     position: model.idleMarkPosition,
                     tint: model.idleMarkTint,
@@ -201,7 +201,7 @@ struct IslandView: View {
     /// A glyph is glanced at and a blinking mark is looked at, and at twelve
     /// points the second one was too small to be worth either.
     private var restRowHeight: CGFloat {
-        isIdle && model.showsIdleMark ? 17 : 14
+        isIdle && model.showsIdleMark ? model.idleMarkStyle.restHeight + 1 : 14
     }
 
     /// Centred, unless it is the idle mark and the user moved it.
@@ -273,7 +273,7 @@ struct IslandView: View {
                     HStack(spacing: 8) {
                         IdleMark(
                             animator: model.idleMarkAnimator,
-                            height: 13,
+                            height: model.idleMarkStyle.hoverHeight,
                             isSuspended: model.isSuspended,
                             isAttentive: true,
                             position: model.idleMarkPosition,
@@ -281,7 +281,7 @@ struct IslandView: View {
                             breathes: model.idleMarkBreath,
                             style: model.idleMarkStyle
                         )
-                        .frame(width: 18)
+                        .frame(width: (model.idleMarkStyle.hoverHeight * BrandGeometry.aspect).rounded())
                         Text("nothing running")
                             .font(.system(size: 11))
                             .foregroundStyle(.white.opacity(0.34))

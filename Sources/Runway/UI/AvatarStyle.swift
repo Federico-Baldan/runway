@@ -1,3 +1,6 @@
+#if canImport(CoreGraphics)
+import CoreGraphics
+#endif
 import Foundation
 
 /// Which face the resting mark wears.
@@ -29,6 +32,18 @@ public enum AvatarStyle: String, Sendable, CaseIterable {
     case papaya
     /// Matt gunmetal, hi-vis chevrons, a sun strip that never goes away.
     case endurance
+
+    /// How tall the mark is drawn in the resting band, in points.
+    ///
+    /// A helmet has far more in it than the eye, so at the eye's 16 points it
+    /// shrinks to a few readable things and a dark smudge. 24 gives every
+    /// design unit a third more room, and the band under the cutout grows by
+    /// the same amount (it is as tall as its row).
+    public var restHeight: CGFloat { isHelmet ? 24 : 16 }
+
+    /// The same in the row that shows when the island is hovered, which is 32
+    /// points tall.
+    public var hoverHeight: CGFloat { isHelmet ? 20 : 13 }
 
     /// What a fresh install wears. One line to change.
     public static let `default`: AvatarStyle = .apollo

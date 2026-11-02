@@ -80,7 +80,9 @@ struct HelmetLayer: View, Equatable {
             context.translateBy(x: size.width / 2, y: size.height / 2)
             context.scaleBy(x: scale, y: scale)
             let shell = Path(HelmetSpec.shell)
-            for draw in spec.draws(for: layer) {
+            // `scale` is points per design unit: how much of the helmet is
+            // worth drawing depends on how big it is on the screen.
+            for draw in spec.draws(for: layer, pointsPerUnit: scale) {
                 var inner = context
                 if draw.clipToShell { inner.clip(to: shell) }
                 let path = Path(draw.path)
@@ -153,6 +155,7 @@ struct HelmetMark: View {
             window(s)
             still(.rim)
             still(.above)
+            still(.edge)
             ForEach(outsideWindow, id: \.self) { moving($0, s) }
         }
         .frame(width: width, height: height)
