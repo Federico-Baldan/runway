@@ -506,7 +506,9 @@ winks. Endurance: a pit-lane strobe; the sun strip dips; a light runs along the
 chevrons; the lights of a car behind fill the visor and the eyes look away.
 
 A helmet has far more in it than the eye, so it is drawn bigger in the notch —
-24 points tall, where the eye is 16 — and made legible for that size: its shell
+19 points tall, where the eye is 16, in a band under the cutout that stays as tall
+as it ever was, since it is drawn over the title bar and the tabs behind it — and
+made legible for that size: its shell
 is dark graphite on the black of the cutout, barely 1.5 times the black, and
 anything under 3:1 reads as not there (WCAG 1.4.11), so a light runs along its
 silhouette, as Apple suggests for a dark icon on a dark ground. Details smaller

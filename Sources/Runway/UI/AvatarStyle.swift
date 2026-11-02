@@ -36,10 +36,26 @@ public enum AvatarStyle: String, Sendable, CaseIterable {
     /// How tall the mark is drawn in the resting band, in points.
     ///
     /// A helmet has far more in it than the eye, so at the eye's 16 points it
-    /// shrinks to a few readable things and a dark smudge. 24 gives every
-    /// design unit a third more room, and the band under the cutout grows by
-    /// the same amount (it is as tall as its row).
-    public var restHeight: CGFloat { isHelmet ? 24 : 16 }
+    /// shrinks to a few readable things and a dark smudge.
+    ///
+    /// It gets three more, and the band under the cutout does NOT grow with it:
+    /// that band is drawn over whatever is behind it (a title bar, a tab row),
+    /// every point of it is something the user cannot see while working, and 24
+    /// points, which made it eight taller, was taken as covering their work. The
+    /// helmet takes what the eye leaves as air below it instead; see
+    /// `restBottomPadding`.
+    ///
+    /// Three points of air and not two: nested rounded shapes sit right when the
+    /// inner radius is the outer one minus the gap (what SwiftUI's
+    /// `ConcentricRectangle` computes), and the island's bottom corners are 18
+    /// while a helmet's are half its height, so the gap that would nest them is
+    /// about 8, which the band cannot afford. The nearer to that, the better.
+    public var restHeight: CGFloat { isHelmet ? 19 : 16 }
+
+    /// The row the mark sits in, and the air under it. Together 22 points for
+    /// every face: the band is as tall as it always was.
+    public var restRowHeight: CGFloat { isHelmet ? 19 : 17 }
+    public var restBottomPadding: CGFloat { isHelmet ? 3 : 5 }
 
     /// The same in the row that shows when the island is hovered, which is 32
     /// points tall.

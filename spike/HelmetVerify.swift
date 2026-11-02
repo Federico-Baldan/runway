@@ -259,6 +259,12 @@ enum HelmetVerify {
         // because it has more in it, and always inside the 32 point hover row.
         check("the eye is drawn as it always was: 16 points at rest, 13 on hover",
               AvatarStyle.classic.restHeight == 16 && AvatarStyle.classic.hoverHeight == 13)
+        // The band under the cutout is drawn over the user's title bar and tabs.
+        // It was 22 points tall with the eye, and a helmet must not make it taller.
+        check("the band under the cutout is 22 points whatever the face (row + air)",
+              AvatarStyle.allCases.allSatisfy { $0.restRowHeight + $0.restBottomPadding == 22 })
+        check("the mark fits its row, so it cannot spill into the band's edge",
+              AvatarStyle.allCases.allSatisfy { $0.restHeight <= $0.restRowHeight })
         check("every helmet is drawn larger than the eye, at rest and on hover",
               AvatarStyle.allCases.filter(\.isHelmet).allSatisfy { $0.restHeight > 16 && $0.hoverHeight > 13 })
         check("a helmet fits in the 32 point hover row with room above and below",

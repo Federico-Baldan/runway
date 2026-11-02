@@ -103,11 +103,7 @@ public final class NotchPanelController {
 
     /// Which face that mark wears. Straight through, like the rest.
     public var idleMarkStyle: AvatarStyle = .default {
-        didSet {
-            model.idleMarkStyle = idleMarkStyle
-            // A helmet is taller than the eye, and the band it hangs in with it.
-            updateInteractiveRegion()
-        }
+        didSet { model.idleMarkStyle = idleMarkStyle }
     }
 
     private var currentPlacement: NotchGeometry.Placement?
@@ -293,13 +289,11 @@ public final class NotchPanelController {
             hostingView.interactiveWidth = NotchGeometry.Width.resting(
                 hasNotch: true, notchWidth: notchWidth
             )
-            // The cutout, plus the band the island hangs below it: the rest
-            // row (one point more than the mark) and 5pt of padding at its
-            // tallest, which is the idle mark, and two to spare. Hovering has
-            // to reach the whole of what is drawn — the mark is the part
-            // people aim at — and a helmet is taller than the eye.
-            hostingView.interactiveHeight = notchHeight
-                + (model.showsIdleMark ? max(24, model.idleMarkStyle.restHeight + 8) : 24)
+            // The cutout, plus the band the island hangs below it: a 17pt
+            // rest row and 5pt of padding at its tallest, which is the idle
+            // mark. Hovering has to reach the whole of what is drawn — the
+            // mark is the part people aim at.
+            hostingView.interactiveHeight = notchHeight + 24
             return
         }
 

@@ -191,7 +191,7 @@ struct IslandView: View {
         // is left is the air between the mark and the edge of the cutout.
         .padding(.horizontal, 4)
         .frame(height: restRowHeight)
-        .padding(.bottom, isIdle ? 5 : 4)
+        .padding(.bottom, isIdle ? (model.showsIdleMark ? model.idleMarkStyle.restBottomPadding : 5) : 4)
         .transition(.opacity)
     }
 
@@ -201,7 +201,7 @@ struct IslandView: View {
     /// A glyph is glanced at and a blinking mark is looked at, and at twelve
     /// points the second one was too small to be worth either.
     private var restRowHeight: CGFloat {
-        isIdle && model.showsIdleMark ? model.idleMarkStyle.restHeight + 1 : 14
+        isIdle && model.showsIdleMark ? model.idleMarkStyle.restRowHeight : 14
     }
 
     /// Centred, unless it is the idle mark and the user moved it.
