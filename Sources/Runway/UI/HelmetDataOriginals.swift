@@ -114,11 +114,11 @@ enum HelmetOriginals {
         // a body between two solar panels. At rest it is off the glass on the left.
         // Everything a part draws is inside the canvas (312 x 224) at rest: a Canvas
         // clips to its frame, so what is outside it is never drawn, however far it is moved.
-        let at: (CGFloat, CGFloat) = (-126, -44)
+        let at: (CGFloat, CGFloat) = (-128, -44)
         parts.append(HDynamic(
             draws: [
-                hFill(hBox(at.0 - 20, at.1, 18, 9), 0x4F86D8),
-                hFill(hBox(at.0 + 20, at.1, 18, 9), 0x4F86D8),
+                hFill(hBox(at.0 - 19, at.1, 16, 9), 0x4F86D8),
+                hFill(hBox(at.0 + 19, at.1, 16, 9), 0x4F86D8),
                 hFill(hBox(at.0, at.1, 15, 13, 2), 0xE9EEF3),
             ],
             channel: .gesture(5), offsetX: HRamp(0, 300), offsetY: HRamp(0, 70), insideWindow: true

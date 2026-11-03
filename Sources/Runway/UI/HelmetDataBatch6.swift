@@ -55,13 +55,14 @@ private func heliHelmet() -> HelmetEntry {
         draws: [hFill(hPoly([(-44, -50), (-14, -50), (-28, 50), (-58, 50)]), 0xFFFFFF, 0.22)],
         channel: .gesture(4), offsetX: HRamp(-120, 150), insideWindow: true
     ))
-    // Gesture 5: a winch cable comes down from above, with its hook.
+    // Gesture 5: a winch cable hangs from the top edge and sways about its anchor, its hook
+    // swinging in front of the face. It is turned, never moved, so it stays hung from the top.
     dynamics.append(HDynamic(
         draws: [
-            hLine(hPoly([(0, -112), (0, -22)], closed: false), 0xC3CAD6, 5),
-            hLine(hCurve([(0, -22), (0, -8), (10, -2), (16, -10)]), 0xC3CAD6, 6),
+            hLine(hPoly([(0, -110), (0, -14)], closed: false), 0xC3CAD6, 5),
+            hLine(hCurve([(0, -14), (0, 0), (10, 6), (16, -2)]), 0xC3CAD6, 6),
         ],
-        channel: .gesture(5), opacity: HRamp(0, 1), offsetY: HRamp(-20, 60)
+        channel: .gesture(5), opacity: HRamp(0, 1), rotation: HRamp(-12, 12), pivot: CGPoint(x: 0, y: -110)
     ))
     // Gesture 6: night vision: the eyes go green behind two round lenses.
     dynamics.append(hLamp([hFill(hTogether([hOval(-44, -4, 58, 58), hOval(44, -4, 58, 58)]), 0x2BFF7A, 0.55)], gesture: 6, inside: true))
@@ -112,10 +113,12 @@ private func heliHelmet() -> HelmetEntry {
             hs(0.1, .linear, ch: 4, lv: 1, dil: 1),
             hReset(4),
         ],
-        // A winch cable comes down and the eyes look up, then follow the hook down.
+        // A winch cable swings in and sways, and the eyes follow the hook from side to side.
         [
-            hs(0.14, hold: 0.18, ch: 5, lv: 1, gx: 0, gy: -0.8),
-            hs(0.16, .easeIn, ch: 5, lv: 0, gx: 0, gy: 0),
+            hs(0.1, ch: 5, lv: 1, gx: 0.5, gy: 0),
+            hs(0.1, .easeInOut, ch: 5, lv: 0.65, gx: -0.5, gy: 0),
+            hs(0.1, .easeInOut, ch: 5, lv: 0.9, gx: 0.5, gy: 0),
+            hs(0.14, .easeIn, ch: 5, lv: 0, gx: 0, gy: 0),
         ],
         // Night vision: the eyes go green and narrow, and it is switched off.
         [

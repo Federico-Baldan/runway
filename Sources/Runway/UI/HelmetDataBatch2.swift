@@ -472,8 +472,8 @@ private func aviatorHelmet() -> HelmetEntry {
     ))
     // Gesture 6: the scarf whips in the wind at the lower right, and settles.
     dynamics.append(HDynamic(
-        draws: [hFill(hPoly([(74, 100), (150, 86), (140, 97), (152, 108), (74, 106)]), 0xEFE6D2)],
-        channel: .gesture(6), opacity: HRamp(0, 1), rotation: HRamp(-10, 14), pivot: CGPoint(x: 74, y: 103)
+        draws: [hFill(hPoly([(74, 94), (148, 80), (138, 91), (148, 102), (74, 100)]), 0xEFE6D2)],
+        channel: .gesture(6), opacity: HRamp(0, 1), rotation: HRamp(-8, 10), pivot: CGPoint(x: 74, y: 97)
     ))
     // Gesture 7: lightning: both lenses flash white and a bolt shows in the right one.
     dynamics.append(hLamp([

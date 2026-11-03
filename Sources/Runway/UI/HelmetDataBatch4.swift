@@ -196,14 +196,14 @@ private func murmilloHelmet() -> HelmetEntry {
     // Gesture 5: a trident thrusts at the grille from the right.
     dynamics.append(HDynamic(
         draws: [
-            hLine(hPoly([(150, 40), (70, 40)], closed: false), 0xEDF1F7, 8),
+            hLine(hPoly([(120, 40), (70, 40)], closed: false), 0xEDF1F7, 8),
             hLine(hPoly([(70, 20), (70, 60)], closed: false), 0xEDF1F7, 8),
             hLine(hTogether([
                 hPoly([(70, 20), (38, 20)], closed: false), hPoly([(70, 40), (32, 40)], closed: false),
                 hPoly([(70, 60), (38, 60)], closed: false),
             ]), 0xEDF1F7, 7),
         ],
-        channel: .gesture(5), opacity: HRamp(0, 1), offsetX: HRamp(40, -30), pulse: HPulse(center: 0.5, width: 0.5)
+        channel: .gesture(5), opacity: HRamp(0, 1), offsetX: HRamp(28, -24), pulse: HPulse(center: 0.5, width: 0.5)
     ))
     // Gesture 6: a light runs along the brim, left to right.
     dynamics += hChase(
@@ -333,12 +333,12 @@ private func bascinetHelmet() -> HelmetEntry {
     // Gesture 7: a sword is raised in front of the mail, point up: the knight's vow.
     dynamics.append(HDynamic(
         draws: [
-            hFill(hPoly([(-6, 70), (-6, 30), (0, 18), (6, 30), (6, 70)]), 0xE3E8F0),
-            hFill(hBox(0, 76, 44, 9, 3), 0xD6A24A),
-            hFill(hBox(0, 92, 8, 16, 2), 0x6B4A2B),
-            hFill(hOval(0, 104, 14, 12), 0xD6A24A),
+            hFill(hPoly([(-6, 66), (-6, 26), (0, 14), (6, 26), (6, 66)]), 0xE3E8F0),
+            hFill(hBox(0, 72, 44, 9, 3), 0xD6A24A),
+            hFill(hBox(0, 88, 8, 16, 2), 0x6B4A2B),
+            hFill(hOval(0, 100, 14, 12), 0xD6A24A),
         ],
-        channel: .gesture(7), opacity: HRamp(0, 1), offsetY: HRamp(14, 0)
+        channel: .gesture(7), opacity: HRamp(0, 1), offsetY: HRamp(10, 0)
     ))
 
     let spec = hHelmet(
@@ -468,7 +468,7 @@ private func gjermundbuHelmet() -> HelmetEntry {
     // Gesture 6: Thor's hammer lights on the mail.
     dynamics.append(hLamp([hFill(hBox(0, 74, 30, 12, 3), 0xBFE3FF, clip: true), hFill(hBox(0, 92, 7, 26, 2), 0xBFE3FF, clip: true)], gesture: 6))
     // Gesture 7: snow falls past the helmet.
-    for (x, y, run, drift) in [(-90, -100, 150, 12), (-50, -108, 160, -10), (-10, -102, 150, 8), (30, -110, 165, -12), (66, -104, 155, 10), (100, -98, 148, -8)] as [(CGFloat, CGFloat, CGFloat, CGFloat)] {
+    for (x, y, run, drift) in [(-90, -100, 150, 12), (-50, -104, 160, -10), (-10, -102, 150, 8), (30, -104, 165, -12), (66, -104, 155, 10), (100, -98, 148, -8)] as [(CGFloat, CGFloat, CGFloat, CGFloat)] {
         dynamics.append(HDynamic(
             draws: [hFill(hOval(x, y, 11, 11), 0xF4F8FF)],
             channel: .gesture(7), opacity: HRamp(0, 1), offsetX: HRamp(0, drift), offsetY: HRamp(0, run),

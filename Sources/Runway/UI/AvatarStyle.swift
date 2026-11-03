@@ -188,7 +188,7 @@ public enum AvatarStyle: String, Sendable, CaseIterable {
         case .kabuto:
             return "Black samurai kabuto with a gold crescent. The crest catches the light, the "
                 + "neck-guard lacing lights from the top, the wing flaps spread, or the brow plate scowls."
-                + " Also: a sword cut flashes across the face, cherry petals fall, a glint slides along the crescent, a kiai flares."
+                + " Also: a sword cut flashes across the face, cherry petals fall, a glint runs along the crescent, a kiai flares."
         case .greathelm:
             return "Flat-topped great helm with a cross-shaped slit. The cross bands flash, "
                 + "the rivets run round the face, the visor slams down, or the breaths puff."
@@ -251,7 +251,7 @@ public enum AvatarStyle: String, Sendable, CaseIterable {
                 + " Also: a foil lunges, the scoring lights show red and green, the mesh flexes, a light runs along the bib."
         case .heli:
             return "Helicopter crew helmet with a headset. The boom swings up from the mouth, the sun visor comes down, the ear cups flash on a call, or a light runs along the cord."
-                + " Also: the rotor's shadow flickers across the glass, a winch cable comes down, night vision goes green, the rescue cross shows."
+                + " Also: the rotor's shadow flickers across the glass, a winch cable swings in and sways, night vision goes green, the rescue cross shows."
         case .jockey:
             return "Jockey's helmet in purple and gold silks. The pom bobs, the four quarters flash in turn, the goggles are pulled down, or the chin-strap buckle glints."
                 + " Also: a horseshoe, a whip cracks, the finish line crosses, the trophy is raised."

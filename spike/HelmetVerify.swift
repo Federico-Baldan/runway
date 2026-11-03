@@ -8,7 +8,8 @@
 //   swiftc -swift-version 6 -o /tmp/helmet spike/HelmetVerify.swift \
 //       Sources/Runway/UI/AvatarStyle.swift Sources/Runway/UI/HelmetGeometry.swift \
 //       Sources/Runway/UI/HelmetSpec.swift Sources/Runway/UI/HelmetSignature.swift \
-//       Sources/Runway/UI/HelmetData*.swift \
+//       Sources/Runway/UI/HelmetData*.swift spike/HelmetLive.swift spike/HelmetFrames.swift \
+//       spike/HelmetAudit.swift \
 //       && /tmp/helmet
 //
 // Add `svg <directory> [height in points]` to also write each helmet in five poses
@@ -317,6 +318,7 @@ enum HelmetVerify {
 
         collectionChecks(helmets)
         LiveDraw.run(helmets)
+        HelmetAudit.run(helmets)
 
         // The original eye has no gesture and costs nothing extra.
         print()

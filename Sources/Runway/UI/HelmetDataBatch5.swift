@@ -415,11 +415,11 @@ private func fencingMask() -> HelmetEntry {
     // Gesture 4: a foil lunges at the face from the right, with its bell guard.
     dynamics.append(HDynamic(
         draws: [
-            hLine(hCurve([(150, 24), (100, 14), (40, 0)]), 0xD7DCE6, 6),
-            hFill(hOval(124, 22, 22, 22), 0x7A7F8C),
-            hLine(hOval(124, 22, 22, 22), 0xD7DCE6, 4),
+            hLine(hCurve([(118, 24), (82, 14), (40, 0)]), 0xD7DCE6, 6),
+            hFill(hOval(98, 22, 22, 22), 0x7A7F8C),
+            hLine(hOval(98, 22, 22, 22), 0xD7DCE6, 4),
         ],
-        channel: .gesture(4), opacity: HRamp(0, 1), offsetX: HRamp(40, -20), pulse: HPulse(center: 0.5, width: 0.5)
+        channel: .gesture(4), opacity: HRamp(0, 1), offsetX: HRamp(24, -16), pulse: HPulse(center: 0.5, width: 0.5)
     ))
     // Gesture 5: the scoring lights: red at the upper left, green at the upper right.
     dynamics.append(hGlow([hFill(hBox(-62, -84, 24, 18, 5), 0xFF3B30)], gesture: 5, center: 1.0 / 3, width: 1.0 / 3))

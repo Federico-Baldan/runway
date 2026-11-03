@@ -333,11 +333,16 @@ private func kabutoHelmet() -> HelmetEntry {
             rotation: HRamp(0, turn), pivot: CGPoint(x: x, y: y), pulse: HPulse(center: 0.5, width: 0.5)
         ))
     }
-    // Gesture 6: a glint slides along the gold crescent. It fades in and out so it never leaves the gold.
-    dynamics.append(HDynamic(
-        draws: [hFill(hPoly([(-30, -120), (14, -120), (-2, -64), (-46, -64)]), 0xFFF6D8, 0.95, clip: true)],
-        channel: .gesture(6), opacity: HRamp(0, 1), offsetX: HRamp(-70, 70), pulse: HPulse(center: 0.5, width: 0.5)
-    ))
+    // Gesture 6: a glint runs along the gold crescent: four slanted bands, each clipped to the
+    // shell where it stands and lit in turn. (One band moved along would be clipped before it
+    // moved, and would leave the crest.)
+    for (index, x) in [-60, -20, 20, 60].enumerated() {
+        let cx = CGFloat(x)
+        dynamics.append(hGlow(
+            [hFill(hPoly([(cx - 18, -120), (cx + 18, -120), (cx + 6, -64), (cx - 30, -64)]), 0xFFF6D8, 0.95, clip: true)],
+            gesture: 6, center: CGFloat(index + 1) / 5, width: 0.2
+        ))
+    }
     // Gesture 7: a kiai, the shout: lines flare either side of the face.
     let shoutLeft = hTogether([
         hPoly([(-128, 8), (-108, 16)], closed: false),
@@ -394,12 +399,13 @@ private func kabutoHelmet() -> HelmetEntry {
             hs(0.17, .easeIn, ch: 5, lv: 1, gx: 0, gy: 0),
             hReset(5),
         ],
-        // A glint slides along the gold crescent, and the eyes look up at it.
+        // A glint runs along the gold crescent, and the eyes look up at it.
         [
-            hs(0.09, .linear, ch: 6, lv: 0.25, gx: 0, gy: -0.8),
-            hs(0.09, .linear, ch: 6, lv: 0.5),
-            hs(0.09, .linear, ch: 6, lv: 0.75),
-            hs(0.09, .linear, ch: 6, lv: 1, gx: 0, gy: 0),
+            hs(0.08, .linear, ch: 6, lv: 0.2, gx: 0, gy: -0.8),
+            hs(0.08, .linear, ch: 6, lv: 0.4),
+            hs(0.08, .linear, ch: 6, lv: 0.6),
+            hs(0.08, .linear, ch: 6, lv: 0.8),
+            hs(0.08, .linear, ch: 6, lv: 1, gx: 0, gy: 0),
             hReset(6),
         ],
         // A kiai: the eyes go wide, the shout lines flare, and it is over.
@@ -467,11 +473,11 @@ private func greatHelm() -> HelmetEntry {
     var sparks: [HPath] = []
     for k in 0..<6 {
         let a = Double(k) * Double.pi / 3 + 0.3
-        sparks.append(hPoly([(-70 + CGFloat(7 * cos(a)), -92 + CGFloat(7 * sin(a))), (-70 + CGFloat(24 * cos(a)), -92 + CGFloat(24 * sin(a)))], closed: false))
+        sparks.append(hPoly([(-70 + CGFloat(7 * cos(a)), -88 + CGFloat(7 * sin(a))), (-70 + CGFloat(21 * cos(a)), -88 + CGFloat(21 * sin(a)))], closed: false))
     }
     dynamics.append(HDynamic(
         draws: [hLine(hTogether(sparks), 0xFFD76A, 6)],
-        channel: .gesture(5), opacity: HRamp(0, 1), scale: HRamp(0.5, 1.3), pivot: CGPoint(x: -70, y: -92),
+        channel: .gesture(5), opacity: HRamp(0, 1), scale: HRamp(0.5, 1.3), pivot: CGPoint(x: -70, y: -88),
         pulse: HPulse(center: 0.5, width: 0.5)
     ))
     // Gesture 6: a torch is carried past: a warm slanted band crosses the helm from the left.
