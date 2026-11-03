@@ -268,8 +268,10 @@ struct HPulse: Sendable, Equatable {
 /// The four numbers the animator drives, plus the gestures, at one instant.
 struct HelmetState: Sendable, Equatable {
     /// How many gesture channels a helmet can have. The animator keeps this
-    /// many, all 0 at rest.
-    static let gestureSlots = 4
+    /// many, all 0 at rest. Eight: a helmet has four gestures built around its
+    /// visor and its lights and four more built around its own parts, and a
+    /// gesture owns one channel, so no two can ever light the same thing.
+    static let gestureSlots = 8
 
     /// How shut the lid is, 0 open to 1 closed.
     var lid: CGFloat = 0

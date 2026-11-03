@@ -52,6 +52,33 @@ private func fireHelmet() -> HelmetEntry {
         channel: .gesture(3), opacity: HRamp(0, 1), offsetY: HRamp(0, -32), insideWindow: true
     ))
 
+
+    // Gesture 4: the brass pads on the crown flash like a siren, red on the left and white on the right.
+    dynamics.append(hGlow([hFill(hBox(-74, -66, 17, 32, 4), 0xFF4B3E, clip: true)], gesture: 4, center: 1.0 / 3, width: 1.0 / 3))
+    dynamics.append(hGlow([hFill(hBox(74, -66, 17, 32, 4), 0xFFF6E0, clip: true)], gesture: 4, center: 2.0 / 3, width: 1.0 / 3))
+    // Gesture 5: smoke rises past the face.
+    dynamics.append(HDynamic(
+        draws: [hFill(hTogether([hOval(-52, 78, 50, 34), hOval(0, 86, 60, 40), hOval(54, 80, 50, 34)]), 0xA9AFBA, 0.6)],
+        channel: .gesture(5), opacity: HRamp(0, 1), offsetY: HRamp(0, -46), insideWindow: true,
+        pulse: HPulse(center: 0.5, width: 0.5)
+    ))
+    // Gesture 6: embers lift off the brim.
+    for (x, y, run, drift) in [(-122, -22, 56, -10), (-92, -20, 44, 6), (98, -22, 50, -6), (128, -24, 60, 12)] as [(CGFloat, CGFloat, CGFloat, CGFloat)] {
+        dynamics.append(HDynamic(
+            draws: [hFill(hPoly([(x, y - 8), (x + 6, y), (x, y + 8), (x - 6, y)]), 0xFF8A3D)],
+            channel: .gesture(6), opacity: HRamp(0, 1), offsetX: HRamp(0, drift), offsetY: HRamp(0, -run),
+            pulse: HPulse(center: 0.5, width: 0.5)
+        ))
+    }
+    // Gesture 7: water drips from the brim.
+    for (x, run) in [(-140, 38), (-104, 30), (110, 34), (144, 42)] as [(CGFloat, CGFloat)] {
+        dynamics.append(HDynamic(
+            draws: [hFill(hOval(x, 6, 11, 16), 0x9ED6FF)],
+            channel: .gesture(7), opacity: HRamp(0, 1), offsetY: HRamp(0, run),
+            pulse: HPulse(center: 0.5, width: 0.5)
+        ))
+    }
+
     let spec = hHelmet(
         shell: shell, base: 0x2D2F36, light: 0x4B4E58,
         lightPath: hCurve([(-102, -38), (-102, -78), (-76, -106), (-30, -110)]), edge: 0xF2BBAA,
@@ -84,6 +111,33 @@ private func fireHelmet() -> HelmetEntry {
         [
             hs(0.12, hold: 0.2, ch: 3, lv: 1, dil: 0.8),
             hs(0.16, .easeIn, ch: 3, lv: 0, dil: 1),
+        ],
+        // The pads on the crown flash like a siren, red then white, twice, and the eyes look up at them.
+        [
+            hs(0.07, .linear, ch: 4, lv: 1.0 / 3, gx: 0, gy: -0.8),
+            hs(0.07, .linear, ch: 4, lv: 2.0 / 3),
+            hs(0.07, .linear, ch: 4, lv: 1.0 / 3),
+            hs(0.07, .linear, ch: 4, lv: 2.0 / 3),
+            hs(0.10, .linear, ch: 4, lv: 1, gx: 0, gy: 0),
+            hReset(4),
+        ],
+        // Smoke rises past the face and the eyes narrow.
+        [
+            hs(0.12, hold: 0.08, ch: 5, lv: 0.5, dil: 0.85),
+            hs(0.16, .easeIn, ch: 5, lv: 1, dil: 1),
+            hReset(5),
+        ],
+        // Embers lift off the brim and the eyes watch them go up.
+        [
+            hs(0.14, hold: 0.06, ch: 6, lv: 0.5, gx: 0, gy: -0.7),
+            hs(0.16, ch: 6, lv: 1, gx: 0, gy: 0),
+            hReset(6),
+        ],
+        // Water drips off the brim and the eyes drop with it.
+        [
+            hs(0.12, hold: 0.06, ch: 7, lv: 0.5, gx: 0, gy: 0.6),
+            hs(0.16, .easeIn, ch: 7, lv: 1, gx: 0, gy: 0),
+            hReset(7),
         ],
     ]
     return HelmetEntry(spec: spec, gestures: gestures, reference: "Traditional fire helmet: comb crown, front shield, wide brim, face shield")
@@ -133,6 +187,32 @@ private func diverHelmet() -> HelmetEntry {
         rotation: HRamp(0, 90), pivot: CGPoint(x: 70, y: 44)
     ))
 
+
+    // Gesture 4: shafts of sunlight slant across the glass and drift.
+    dynamics.append(HDynamic(
+        draws: [hFill(hTogether([
+            hPoly([(-48, -70), (-34, -70), (-14, 50), (-28, 50)]),
+            hPoly([(-4, -70), (6, -70), (26, 50), (16, 50)]),
+            hPoly([(30, -70), (50, -70), (70, 50), (50, 50)]),
+        ]), 0xCFF5FF, 0.22)],
+        channel: .gesture(4), opacity: HRamp(0, 1), offsetX: HRamp(-14, 22), insideWindow: true,
+        pulse: HPulse(center: 0.5, width: 0.5)
+    ))
+    // Gesture 5: a fish swims across the glass. At rest it is off the glass on the left.
+    dynamics.append(HDynamic(
+        draws: [
+            hFill(hOval(-112, -36, 44, 24), 0xE8803A),
+            hFill(hPoly([(-132, -36), (-152, -48), (-152, -24)]), 0xE8803A),
+            hFill(hOval(-100, -40, 6, 6), 0x0B0C0F),
+        ],
+        channel: .gesture(5), offsetX: HRamp(0, 240), insideWindow: true
+    ))
+    // Gesture 6: sunlight glints round the brass rim of the window.
+    dynamics += hChase(HShape.spans(hOval(0, -8, 126, 92)), hex: 0xFFEBB0, width: 12, gesture: 6)
+    // Gesture 7: the side ports catch the light, left then right.
+    dynamics.append(hGlow([hFill(hOval(-86, -8, 20, 40), 0xBFF3FF, 0.9)], gesture: 7, center: 1.0 / 3, width: 1.0 / 3))
+    dynamics.append(hGlow([hFill(hOval(86, -8, 20, 40), 0xBFF3FF, 0.9)], gesture: 7, center: 2.0 / 3, width: 1.0 / 3))
+
     let spec = hHelmet(
         shell: shell, base: 0x5C4623, light: 0x9A7B3E,
         lightPath: hCurve([(-96, 10), (-98, -34), (-72, -88), (-30, -108)]), edge: 0xF0D9A0,
@@ -169,6 +249,29 @@ private func diverHelmet() -> HelmetEntry {
             hs(0.07, hold: 0.04, ch: 3, lv: 0.5, gx: 0.8, gy: 0.6),
             hs(0.07, hold: 0.1, ch: 3, lv: 1),
             hs(0.12, .easeInOut, ch: 3, lv: 0, gx: 0, gy: 0),
+        ],
+        // Shafts of sunlight drift across the glass and the eyes look up at them.
+        [
+            hs(0.14, hold: 0.06, ch: 4, lv: 0.5, gx: 0.3, gy: -0.7),
+            hs(0.18, .easeIn, ch: 4, lv: 1, gx: 0, gy: 0),
+            hReset(4),
+        ],
+        // A fish swims across and the eyes follow it from side to side.
+        [
+            hs(0.04, hold: 0.03, gx: -0.7, gy: -0.5),
+            hs(0.17, .linear, ch: 5, lv: 0.5, gx: 0, gy: -0.5),
+            hs(0.17, .linear, ch: 5, lv: 1, gx: 0.7, gy: -0.5),
+            hReset(5),
+            hs(0.08, gx: 0, gy: 0),
+        ],
+        // Light runs round the brass rim.
+        hWalk([0.2, 0.4, 0.6, 0.8, 1], ch: 6, each: 0.08),
+        // The side ports flash, left then right, and the eyes glance at each.
+        [
+            hs(0.07, hold: 0.1, ch: 7, lv: 1.0 / 3, gx: -0.8, gy: 0),
+            hs(0.08, hold: 0.1, ch: 7, lv: 2.0 / 3, gx: 0.8, gy: 0),
+            hs(0.1, ch: 7, lv: 1, gx: 0, gy: 0),
+            hReset(7),
         ],
     ]
     return HelmetEntry(spec: spec, gestures: gestures, reference: "Brass standard diving helmet: round front port, side ports, wing nuts, spit cock")
@@ -213,6 +316,40 @@ private func kabutoHelmet() -> HelmetEntry {
         channel: .gesture(2), rotation: HRamp(0, 28), pivot: CGPoint(x: -106, y: -30)
     ))
 
+
+    // Gesture 4: a sword cut across the face, white, from the upper right to the lower left.
+    dynamics.append(HDynamic(
+        draws: [
+            hLine(hPoly([(112, -30), (-112, 74)], closed: false), 0xF4F6FA, 8, clip: true),
+            hLine(hPoly([(124, -14), (-100, 90)], closed: false), 0xF4F6FA, 4, clip: true),
+        ],
+        channel: .gesture(4), opacity: HRamp(0, 1)
+    ))
+    // Gesture 5: three petals of cherry blossom fall across the front, turning as they go.
+    for (x, y, dx, dy, turn) in [(-96, -80, 30, 110, 140), (-20, -96, -24, 120, -120), (64, -88, 26, 104, 160)] as [(CGFloat, CGFloat, CGFloat, CGFloat, CGFloat)] {
+        dynamics.append(HDynamic(
+            draws: [hFill(hOval(x, y, 20, 12), 0xF4B6C8)],
+            channel: .gesture(5), opacity: HRamp(0, 1), offsetX: HRamp(0, dx), offsetY: HRamp(0, dy),
+            rotation: HRamp(0, turn), pivot: CGPoint(x: x, y: y), pulse: HPulse(center: 0.5, width: 0.5)
+        ))
+    }
+    // Gesture 6: a glint slides along the gold crescent. It fades in and out so it never leaves the gold.
+    dynamics.append(HDynamic(
+        draws: [hFill(hPoly([(-30, -120), (14, -120), (-2, -64), (-46, -64)]), 0xFFF6D8, 0.95, clip: true)],
+        channel: .gesture(6), opacity: HRamp(0, 1), offsetX: HRamp(-70, 70), pulse: HPulse(center: 0.5, width: 0.5)
+    ))
+    // Gesture 7: a kiai, the shout: lines flare either side of the face.
+    let shoutLeft = hTogether([
+        hPoly([(-128, 8), (-108, 16)], closed: false),
+        hPoly([(-132, 30), (-110, 30)], closed: false),
+        hPoly([(-128, 52), (-108, 44)], closed: false),
+    ])
+    dynamics.append(HDynamic(
+        draws: [hLine(shoutLeft, 0xF1E6CB, 7), hLine(hMirror(shoutLeft), 0xF1E6CB, 7)],
+        channel: .gesture(7), opacity: HRamp(0, 1), scale: HRamp(0.7, 1.1), pivot: CGPoint(x: 0, y: 30),
+        pulse: HPulse(center: 0.5, width: 0.5)
+    ))
+
     let spec = hHelmet(
         shell: shell, base: 0x26282E, light: 0x484B55,
         lightPath: hCurve([(-112, -30), (-96, -52), (-60, -62), (-46, -66)]), edge: 0xE6D2A4,
@@ -244,6 +381,32 @@ private func kabutoHelmet() -> HelmetEntry {
         [
             hs(0.1, hold: 0.18, ch: 3, lv: 1, dil: 0.8),
             hs(0.16, .easeIn, ch: 3, lv: 0, dil: 1),
+        ],
+        // A sword cut: the eyes jump right, the slash flashes across the face and they snap to the left.
+        [
+            hs(0.04, hold: 0.04, gx: 0.8, gy: 0),
+            hs(0.03, hold: 0.12, ch: 4, lv: 1, gx: -0.8, gy: 0),
+            hs(0.16, .easeIn, ch: 4, lv: 0, gx: 0, gy: 0),
+        ],
+        // Petals of cherry blossom fall across the helmet and the eyes drift down with them.
+        [
+            hs(0.17, hold: 0.04, ch: 5, lv: 0.5, gx: 0.3, gy: 0.5),
+            hs(0.17, .easeIn, ch: 5, lv: 1, gx: 0, gy: 0),
+            hReset(5),
+        ],
+        // A glint slides along the gold crescent, and the eyes look up at it.
+        [
+            hs(0.09, .linear, ch: 6, lv: 0.25, gx: 0, gy: -0.8),
+            hs(0.09, .linear, ch: 6, lv: 0.5),
+            hs(0.09, .linear, ch: 6, lv: 0.75),
+            hs(0.09, .linear, ch: 6, lv: 1, gx: 0, gy: 0),
+            hReset(6),
+        ],
+        // A kiai: the eyes go wide, the shout lines flare, and it is over.
+        [
+            hs(0.06, hold: 0.16, ch: 7, lv: 0.5, dil: 1.2),
+            hs(0.10, .easeIn, ch: 7, lv: 1, dil: 1),
+            hReset(7),
         ],
     ]
     return HelmetEntry(spec: spec, gestures: gestures, reference: "Samurai kabuto: crescent maedate, fukigaeshi wing flaps, laced shikoro neck guard, mabizashi brow plate")
@@ -290,6 +453,35 @@ private func greatHelm() -> HelmetEntry {
     // Gesture 3: the breaths puff.
     dynamics.append(hLamp([hFill(breaths, 0xDDEBFF, clip: true)], gesture: 3))
 
+
+    // Gesture 4: an arrow whistles past from the right, through the line of the band.
+    dynamics.append(HDynamic(
+        draws: [
+            hLine(hPoly([(50, -23), (150, -23)], closed: false), 0xC9B58A, 7),
+            hFill(hPoly([(50, -23), (68, -32), (68, -14)]), 0xDDE3EA),
+            hLine(hTogether([hPoly([(150, -23), (136, -33)], closed: false), hPoly([(150, -23), (136, -13)], closed: false)]), 0xB04A3A, 6),
+        ],
+        channel: .gesture(4), opacity: HRamp(0, 1), offsetX: HRamp(0, -200), pulse: HPulse(center: 0.5, width: 0.5)
+    ))
+    // Gesture 5: a sword glances off the helm in a burst of sparks at the upper left.
+    var sparks: [HPath] = []
+    for k in 0..<6 {
+        let a = Double(k) * Double.pi / 3 + 0.3
+        sparks.append(hPoly([(-70 + CGFloat(7 * cos(a)), -92 + CGFloat(7 * sin(a))), (-70 + CGFloat(24 * cos(a)), -92 + CGFloat(24 * sin(a)))], closed: false))
+    }
+    dynamics.append(HDynamic(
+        draws: [hLine(hTogether(sparks), 0xFFD76A, 6)],
+        channel: .gesture(5), opacity: HRamp(0, 1), scale: HRamp(0.5, 1.3), pivot: CGPoint(x: -70, y: -92),
+        pulse: HPulse(center: 0.5, width: 0.5)
+    ))
+    // Gesture 6: a torch is carried past: a warm slanted band crosses the helm from the left.
+    dynamics.append(HDynamic(
+        draws: [hFill(hPoly([(-40, -110), (20, -110), (0, 110), (-60, 110)]), 0xFFB347, 0.22, clip: true)],
+        channel: .gesture(6), opacity: HRamp(0, 1), offsetX: HRamp(-50, 80), pulse: HPulse(center: 0.5, width: 0.5)
+    ))
+    // Gesture 7: the cross-shaped slit glows, white.
+    dynamics.append(hLamp([hFill(cross, 0xF4F9FF, 0.55)], gesture: 7, inside: true))
+
     let spec = hHelmet(
         shell: shell, base: 0x343B45, light: 0x6A7482,
         lightPath: hCurve([(-84, -56), (-80, -98), (-60, -108), (-30, -108)]), edge: 0xD2DCE9,
@@ -319,6 +511,33 @@ private func greatHelm() -> HelmetEntry {
             hs(0.1, hold: 0.03, .easeIn, ch: 3, lv: 0),
             hs(0.07, hold: 0.04, ch: 3, lv: 1),
             hs(0.12, .easeIn, ch: 3, lv: 0, dil: 1),
+        ],
+        // An arrow whistles past, right to left, and the eyes flick after it.
+        [
+            hs(0.04, hold: 0.10, gx: 0.8, gy: 0),
+            hs(0.10, .linear, ch: 4, lv: 0.5, gx: 0, gy: 0),
+            hs(0.10, .linear, ch: 4, lv: 1, gx: -0.8, gy: 0),
+            hReset(4),
+            hs(0.10, gx: 0, gy: 0),
+        ],
+        // A sword glances off the helm: sparks, and the eyes screw up.
+        [
+            hs(0.10, hold: 0.06, ch: 5, lv: 0.5, dil: 0.8),
+            hs(0.14, .easeIn, ch: 5, lv: 1, dil: 1),
+            hReset(5),
+        ],
+        // A torch is carried past and the eyes follow its light across.
+        [
+            hs(0.04, hold: 0.04, gx: -0.8, gy: 0),
+            hs(0.14, .linear, ch: 6, lv: 0.5, gx: 0, gy: 0),
+            hs(0.14, .linear, ch: 6, lv: 1, gx: 0.8, gy: 0),
+            hReset(6),
+            hs(0.08, gx: 0, gy: 0),
+        ],
+        // The cross glows and the eyes close up behind it.
+        [
+            hs(0.16, hold: 0.2, ch: 7, lv: 1, dil: 0.85),
+            hs(0.2, .easeInOut, ch: 7, lv: 0, dil: 1),
         ],
     ]
     return HelmetEntry(spec: spec, gestures: gestures, reference: "13th-century great helm: flat top, cross-shaped slit, breaths, riveted bands")

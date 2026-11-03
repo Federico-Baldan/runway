@@ -737,10 +737,12 @@ final class IdleMarkAnimator {
         ]
         // A helmet has things the eye does not, and they are worth being seen:
         // often enough to notice, rarely enough to stay a surprise. Each gesture
-        // is in the draw on its own, so the more a helmet has the more it varies
-        // and not the more it fidgets. Their cost is the same kind of number as
-        // every other beat's, so on battery a gesture is in the draw only because
-        // it is frugal, and in Low Power Mode none is, being no lid movement.
+        // is in the draw on its own, at the same weight whatever the helmet has,
+        // so eight gestures are seen more often than four: about one beat in
+        // five on the wall, against one in nine, and the beats themselves come
+        // no faster. Their cost is the same kind of number as every other beat's,
+        // so on battery a gesture is in the draw only because it is frugal, and
+        // in Low Power Mode none is, being no lid movement.
         for index in HelmetSignature.gestures(for: avatar).indices {
             all.append((weight: 4, beat: .signature(avatar, index)))
         }

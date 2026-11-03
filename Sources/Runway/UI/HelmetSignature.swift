@@ -111,7 +111,7 @@ enum HelmetSignature {
                     SignatureStep(duration: 0.06, curve: .easeOut, channel: 3, level: 1, gaze: .zero, looksAway: true),
                     SignatureStep(duration: 0, curve: .instant, channel: 3, level: 0),
                 ],
-            ]
+            ] + HelmetOriginals.gestures(for: style)
 
         case .orlan:
             return [
@@ -144,7 +144,7 @@ enum HelmetSignature {
                     SignatureStep(duration: 0, curve: .instant, channel: 3, level: 0),
                     SignatureStep(duration: 0.08, curve: .easeOut, gaze: .zero, looksAway: true),
                 ],
-            ]
+            ] + HelmetOriginals.gestures(for: style)
 
         case .stealth:
             return [
@@ -180,7 +180,7 @@ enum HelmetSignature {
                     SignatureStep(duration: 0.12, hold: 0.16, curve: .easeOut, channel: 3, level: 1, dilation: 0.8),
                     SignatureStep(duration: 0.12, curve: .easeOut, channel: 3, level: 0, dilation: 1),
                 ],
-            ]
+            ] + HelmetOriginals.gestures(for: style)
 
         case .papaya:
             return [
@@ -211,7 +211,7 @@ enum HelmetSignature {
                     SignatureStep(duration: 0.07, hold: 0.16, curve: .easeOut, channel: 3, level: 1),
                     SignatureStep(duration: 0.12, curve: .easeInOut, channel: 3, level: 0),
                 ],
-            ]
+            ] + HelmetOriginals.gestures(for: style)
 
         case .endurance:
             // A pit-lane strobe: three flashes.
@@ -234,7 +234,7 @@ enum HelmetSignature {
                     SignatureStep(duration: 0.04, hold: 0.14, curve: .easeOut, channel: 3, level: 1, gaze: CGSize(width: -0.6, height: 0.7), looksAway: true),
                     SignatureStep(duration: 0.26, curve: .easeOut, channel: 3, level: 0, gaze: .zero, looksAway: true),
                 ],
-            ]
+            ] + HelmetOriginals.gestures(for: style)
 
         // The helmets after the first five keep their gestures next to their
         // drawings, in `HelmetCollection`.

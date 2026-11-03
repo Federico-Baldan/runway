@@ -48,6 +48,29 @@ private func heliHelmet() -> HelmetEntry {
     // Gesture 3: a light runs along the cord.
     dynamics += hChase(HShape.spans(hPoly(cord, closed: false)), hex: 0xFFD7B0, width: 7, gesture: 3, clip: true)
 
+
+    // Gesture 4: the shadow of the rotor blades flickers across the glass: a pale slanted bar,
+    // twice. At rest it is off the glass on the left.
+    dynamics.append(HDynamic(
+        draws: [hFill(hPoly([(-44, -50), (-14, -50), (-28, 50), (-58, 50)]), 0xFFFFFF, 0.22)],
+        channel: .gesture(4), offsetX: HRamp(-120, 150), insideWindow: true
+    ))
+    // Gesture 5: a winch cable comes down from above, with its hook.
+    dynamics.append(HDynamic(
+        draws: [
+            hLine(hPoly([(0, -112), (0, -22)], closed: false), 0xC3CAD6, 5),
+            hLine(hCurve([(0, -22), (0, -8), (10, -2), (16, -10)]), 0xC3CAD6, 6),
+        ],
+        channel: .gesture(5), opacity: HRamp(0, 1), offsetY: HRamp(-20, 60)
+    ))
+    // Gesture 6: night vision: the eyes go green behind two round lenses.
+    dynamics.append(hLamp([hFill(hTogether([hOval(-44, -4, 58, 58), hOval(44, -4, 58, 58)]), 0x2BFF7A, 0.55)], gesture: 6, inside: true))
+    // Gesture 7: the rescue cross: a red square with a white cross on the front of the crown.
+    dynamics.append(HDynamic(
+        draws: [hFill(hBox(0, -86, 30, 30, 4), 0xE5483E), hFill(hBox(0, -86, 6, 20, 1), 0xFFFFFF), hFill(hBox(0, -86, 20, 6, 1), 0xFFFFFF)],
+        channel: .gesture(7), opacity: HRamp(0, 1), scale: HRamp(0.6, 1), pivot: CGPoint(x: 0, y: -86)
+    ))
+
     let spec = hHelmet(
         shell: shell, base: 0x5B5039, light: 0x877A58,
         lightPath: hCurve([(-70, -66), (-66, -88), (-44, -104), (-20, -106)]), edge: 0xE8DCC0,
@@ -80,6 +103,30 @@ private func heliHelmet() -> HelmetEntry {
         ],
         // A light runs along the headset cord.
         hWalk([0.25, 0.5, 0.75, 1], ch: 3, each: 0.1),
+        // The shadow of the rotor flickers across the glass twice and the eyes narrow.
+        [
+            hs(0.1, .linear, ch: 4, lv: 0.5, dil: 0.85),
+            hs(0.1, .linear, ch: 4, lv: 1),
+            hReset(4),
+            hs(0.1, .linear, ch: 4, lv: 0.5),
+            hs(0.1, .linear, ch: 4, lv: 1, dil: 1),
+            hReset(4),
+        ],
+        // A winch cable comes down and the eyes look up, then follow the hook down.
+        [
+            hs(0.14, hold: 0.18, ch: 5, lv: 1, gx: 0, gy: -0.8),
+            hs(0.16, .easeIn, ch: 5, lv: 0, gx: 0, gy: 0),
+        ],
+        // Night vision: the eyes go green and narrow, and it is switched off.
+        [
+            hs(0.1, hold: 0.3, ch: 6, lv: 1, dil: 0.9),
+            hs(0.14, .easeIn, ch: 6, lv: 0, dil: 1),
+        ],
+        // The rescue cross shows on the crown and the eyes look up at it.
+        [
+            hs(0.1, hold: 0.24, ch: 7, lv: 1, gx: 0, gy: -0.8),
+            hs(0.14, .easeIn, ch: 7, lv: 0, gx: 0, gy: 0),
+        ],
     ]
     return HelmetEntry(spec: spec, gestures: gestures, reference: "Helicopter crew helmet: visor housing, sun visor, headset ear cups, boom microphone")
 }
@@ -124,6 +171,38 @@ private func jockeyHelmet() -> HelmetEntry {
     // Gesture 3: the buckle of the chin strap catches the light.
     dynamics.append(hLamp([hFill(buckle, 0xFFFFFF)], gesture: 3))
 
+
+    // Gesture 4: a horseshoe, for luck, on the chin: silver, with its nails.
+    let shoe = hCurve([(-18, 62), (-22, 80), (-12, 94), (0, 98), (12, 94), (22, 80), (18, 62)])
+    dynamics.append(HDynamic(
+        draws: [hLine(shoe, 0xD7DCE6, 9), hFill(hDots([-21, 21], 70, 5), 0x24262B), hFill(hDots([-19, 19], 84, 5), 0x24262B)],
+        channel: .gesture(4), opacity: HRamp(0, 1), scale: HRamp(0.6, 1), pivot: CGPoint(x: 0, y: 82)
+    ))
+    // Gesture 5: a whip cracks across the face: a brown line, and the crack at its tip.
+    dynamics.append(HDynamic(
+        draws: [
+            hLine(hCurve([(-110, 70), (-60, 14), (0, 44), (60, -26), (104, -46)]), 0x8A5A2C, 6),
+            hLine(hTogether([
+                hPoly([(104, -46), (124, -62)], closed: false), hPoly([(104, -46), (128, -40)], closed: false),
+                hPoly([(104, -46), (116, -26)], closed: false),
+            ]), 0xFFE9A8, 5),
+        ],
+        channel: .gesture(5), opacity: HRamp(0, 1)
+    ))
+    // Gesture 6: the finish line: a white line crosses the face from the left, as for the photo finish.
+    dynamics.append(HDynamic(
+        draws: [hFill(hBox(-90, -4, 8, 214), 0xFFFFFF, 0.9, clip: true)],
+        channel: .gesture(6), opacity: HRamp(0, 1), offsetX: HRamp(0, 180), pulse: HPulse(center: 0.5, width: 0.5)
+    ))
+    // Gesture 7: the trophy is raised in front of the chin, gold, with its handles.
+    dynamics.append(HDynamic(
+        draws: [
+            hFill(hPoly([(-16, 60), (16, 60), (12, 84), (4, 90), (4, 98), (12, 98), (12, 104), (-12, 104), (-12, 98), (-4, 98), (-4, 90), (-12, 84)]), 0xFFD34D),
+            hLine(hTogether([hCurve([(-16, 64), (-26, 68), (-14, 80)]), hCurve([(16, 64), (26, 68), (14, 80)])]), 0xFFD34D, 5),
+        ],
+        channel: .gesture(7), opacity: HRamp(0, 1), offsetY: HRamp(10, 0), scale: HRamp(0.8, 1), pivot: CGPoint(x: 0, y: 104)
+    ))
+
     let spec = hHelmet(
         shell: shell, base: 0x24262B, light: 0x4A4D57,
         lightPath: hCurve([(-98, -20), (-92, -58), (-58, -92), (-24, -96)]), edge: 0xD9C6F2,
@@ -155,6 +234,29 @@ private func jockeyHelmet() -> HelmetEntry {
         [
             hs(0.07, hold: 0.12, ch: 3, lv: 1, gx: 0.5, gy: 0.8),
             hs(0.14, .easeIn, ch: 3, lv: 0, gx: 0, gy: 0),
+        ],
+        // A horseshoe, for luck: the eyes look down at it.
+        [
+            hs(0.12, hold: 0.22, ch: 4, lv: 1, gx: 0, gy: 0.6),
+            hs(0.16, .easeIn, ch: 4, lv: 0, gx: 0, gy: 0),
+        ],
+        // A whip cracks across the face and the eyes widen.
+        [
+            hs(0.04, hold: 0.1, ch: 5, lv: 1, dil: 1.2),
+            hs(0.14, .easeIn, ch: 5, lv: 0, dil: 1),
+        ],
+        // The finish line crosses the face and the eyes lean after it.
+        [
+            hs(0.04, hold: 0.03, gx: -0.8),
+            hs(0.14, .linear, ch: 6, lv: 0.5, gx: 0),
+            hs(0.14, .linear, ch: 6, lv: 1, gx: 0.8),
+            hReset(6),
+            hs(0.08, gx: 0),
+        ],
+        // The trophy is raised and the eyes widen at it.
+        [
+            hs(0.12, hold: 0.24, ch: 7, lv: 1, gx: 0, gy: 0.7, dil: 1.15),
+            hs(0.16, .easeIn, ch: 7, lv: 0, gx: 0, gy: 0, dil: 1),
         ],
     ]
     return HelmetEntry(spec: spec, gestures: gestures, reference: "Jockey's helmet in silks: quartered cover, pom, goggles, chin strap")

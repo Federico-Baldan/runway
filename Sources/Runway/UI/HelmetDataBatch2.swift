@@ -57,6 +57,40 @@ private func gridironHelmet() -> HelmetEntry {
     dynamics.append(hGlow([hFill(hOval(snaps[0].x, snaps[0].y, 14, 14), 0xFFF3C8)], gesture: 2, center: 1.0 / 3, width: 1.0 / 3))
     dynamics.append(hGlow([hFill(hOval(snaps[1].x, snaps[1].y, 14, 14), 0xFFF3C8)], gesture: 2, center: 2.0 / 3, width: 1.0 / 3))
 
+
+    // Gesture 4: a penalty flag is thrown: a yellow flag climbs on the left, turning, and comes down out of sight.
+    dynamics.append(HDynamic(
+        draws: [hFill(hBox(-64, 40, 28, 22, 2), 0xFFD400), hFill(hPoly([(-50, 40), (-36, 34), (-36, 46)]), 0xC9A200)],
+        channel: .gesture(4), opacity: HRamp(0, 1), offsetY: HRamp(0, -80), rotation: HRamp(0, 220),
+        pivot: CGPoint(x: -64, y: 40), pulse: HPulse(center: 0.5, width: 0.5)
+    ))
+    // Gesture 5: a football is thrown across the face, from the lower left to the upper right.
+    dynamics.append(HDynamic(
+        draws: [
+            hFill(hOval(-94, 18, 50, 28), 0x8A4B26),
+            hLine(hPoly([(-108, 18), (-80, 18)], closed: false), 0xF2F2F2, 4),
+            hLine(hTogether([
+                hPoly([(-98, 12), (-98, 24)], closed: false), hPoly([(-90, 12), (-90, 24)], closed: false),
+                hPoly([(-82, 13), (-82, 23)], closed: false),
+            ]), 0xF2F2F2, 3),
+        ],
+        channel: .gesture(5), opacity: HRamp(0, 1), offsetX: HRamp(0, 188), offsetY: HRamp(0, -46),
+        pulse: HPulse(center: 0.5, width: 0.5)
+    ))
+    // Gesture 6: the floodlights of the stadium are reflected in the shield, a row of four.
+    dynamics.append(hLamp([hFill(hTogether([-54, -18, 18, 54].map { hBox(CGFloat($0), 3, 20, 9, 3) }), 0xFFF8D6)], gesture: 6, inside: true))
+    // Gesture 7: touchdown: confetti falls over the face, blue, white, red and gold.
+    for (x, y, run, turn, hex) in [
+        (-96, -96, 130, 160, 0x3C68E6), (-50, -104, 150, -200, 0xF2F4F8), (-6, -98, 138, 140, 0xFF5A5F),
+        (40, -106, 156, -180, 0xFFD400), (84, -98, 134, 200, 0x3C68E6),
+    ] as [(CGFloat, CGFloat, CGFloat, CGFloat, UInt32)] {
+        dynamics.append(HDynamic(
+            draws: [hFill(hBox(x, y, 12, 8), hex)],
+            channel: .gesture(7), opacity: HRamp(0, 1), offsetY: HRamp(0, run), rotation: HRamp(0, turn),
+            pivot: CGPoint(x: x, y: y), pulse: HPulse(center: 0.5, width: 0.5)
+        ))
+    }
+
     let spec = hHelmet(
         shell: shell, base: 0x25272D, light: 0x474A55,
         lightPath: hCurve([(-112, -22), (-104, -70), (-70, -104), (-30, -110)]), edge: 0xD0D6EC,
@@ -86,6 +120,33 @@ private func gridironHelmet() -> HelmetEntry {
         [
             hs(0.12, hold: 0.18, ch: 3, lv: 1, dil: 0.85),
             hs(0.16, .easeIn, ch: 3, lv: 0, dil: 1),
+        ],
+        // A penalty flag is thrown and the eyes follow it up.
+        [
+            hs(0.14, hold: 0.04, ch: 4, lv: 0.5, gx: 0, gy: -0.8),
+            hs(0.16, .easeIn, ch: 4, lv: 1, gx: 0, gy: 0),
+            hReset(4),
+        ],
+        // A football is thrown across the face and the eyes follow it.
+        [
+            hs(0.04, hold: 0.03, gx: -0.8, gy: 0.4),
+            hs(0.14, .linear, ch: 5, lv: 0.5, gx: 0, gy: 0),
+            hs(0.14, .linear, ch: 5, lv: 1, gx: 0.8, gy: -0.4),
+            hReset(5),
+            hs(0.08, gx: 0, gy: 0),
+        ],
+        // The floodlights flicker on in the shield, twice, and the eyes squint.
+        [
+            hs(0.06, hold: 0.08, ch: 6, lv: 1, dil: 0.85),
+            hs(0.08, hold: 0.06, .easeIn, ch: 6, lv: 0),
+            hs(0.06, hold: 0.1, ch: 6, lv: 1),
+            hs(0.12, .easeIn, ch: 6, lv: 0, dil: 1),
+        ],
+        // Touchdown: confetti, and the eyes open wide.
+        [
+            hs(0.14, hold: 0.04, ch: 7, lv: 0.5, dil: 1.15),
+            hs(0.18, .easeIn, ch: 7, lv: 1, dil: 1),
+            hReset(7),
         ],
     ]
     return HelmetEntry(spec: spec, gestures: gestures, reference: "American football helmet: shell stripe, ear holes, jaw flaps, facemask, tinted eye shield")
@@ -129,6 +190,31 @@ private func motoHelmet() -> HelmetEntry {
         channel: .gesture(2), offsetY: HRamp(0, 14)
     ))
 
+
+    // Gesture 4: roost: dirt thrown up by the bike ahead, flecks across the goggles.
+    dynamics.append(HDynamic(
+        draws: [hFill(hTogether([
+            hBox(-70, -30, 16, 8, 2), hBox(-40, -8, 22, 6, 2), hBox(-10, -36, 14, 8, 2),
+            hBox(20, 10, 20, 6, 2), hBox(50, -20, 18, 8, 2), hBox(80, -4, 14, 6, 2),
+        ]), 0x8A5A2C)],
+        channel: .gesture(4), opacity: HRamp(0, 1), offsetX: HRamp(-30, 50), insideWindow: true,
+        pulse: HPulse(center: 0.5, width: 0.5)
+    ))
+    // Gesture 5: the rim of the goggles flashes with the revs.
+    dynamics.append(hLamp([hLine(hBox(0, -8, 206, 74, 30), 0xFFF39A, 11)], gesture: 5))
+    // Gesture 6: a glint slides across the lenses. At rest it is off the glass on the left.
+    dynamics.append(HDynamic(
+        draws: [hFill(hPoly([(-22, -50), (18, -50), (0, 34), (-40, 34)]), 0xFFFFFF, 0.28)],
+        channel: .gesture(6), offsetX: HRamp(-135, 135), insideWindow: true
+    ))
+    // Gesture 7: hard breathing: two puffs leave the mouthpiece and rise.
+    for (x, run) in [(-10, 46), (12, 56)] as [(CGFloat, CGFloat)] {
+        dynamics.append(HDynamic(
+            draws: [hFill(hOval(x, 84, 26, 18), 0xE8EEF2, 0.75)],
+            channel: .gesture(7), opacity: HRamp(0, 1), offsetY: HRamp(0, -run), pulse: HPulse(center: 0.5, width: 0.5)
+        ))
+    }
+
     let spec = hHelmet(
         shell: shell, base: 0x25272D, light: 0x474A55,
         lightPath: hCurve([(-110, -30), (-104, -60), (-70, -80), (-30, -82)]), edge: 0xF2E3A0,
@@ -163,6 +249,35 @@ private func motoHelmet() -> HelmetEntry {
         [
             hs(0.12, hold: 0.18, ch: 3, lv: 1, dil: 0.85),
             hs(0.16, .easeIn, ch: 3, lv: 0, dil: 1),
+        ],
+        // Roost: dirt flies across the goggles and the eyes flinch.
+        [
+            hs(0.1, .linear, ch: 4, lv: 0.5, dil: 0.8),
+            hs(0.12, .linear, ch: 4, lv: 1, dil: 1),
+            hReset(4),
+        ],
+        // The rim of the goggles flashes three times with the revs, and the eyes shiver.
+        [
+            hs(0.04, hold: 0.03, ch: 5, lv: 1, gx: -0.6),
+            hs(0.04, hold: 0.03, ch: 5, lv: 0, gx: 0.6),
+            hs(0.04, hold: 0.03, ch: 5, lv: 1, gx: -0.6),
+            hs(0.04, hold: 0.03, ch: 5, lv: 0, gx: 0.6),
+            hs(0.04, hold: 0.03, ch: 5, lv: 1, gx: -0.6),
+            hs(0.1, ch: 5, lv: 0, gx: 0, gy: 0),
+        ],
+        // A glint slides across the lenses and the eyes follow it.
+        [
+            hs(0.04, hold: 0.03, gx: -0.8),
+            hs(0.17, .linear, ch: 6, lv: 0.5, gx: 0),
+            hs(0.17, .linear, ch: 6, lv: 1, gx: 0.8),
+            hReset(6),
+            hs(0.08, gx: 0),
+        ],
+        // Hard breathing: two puffs rise from the mouthpiece and the eyes narrow.
+        [
+            hs(0.12, hold: 0.06, ch: 7, lv: 0.5, dil: 0.85),
+            hs(0.16, .easeIn, ch: 7, lv: 1, dil: 1),
+            hReset(7),
         ],
     ]
     return HelmetEntry(spec: spec, gestures: gestures, reference: "Motocross helmet: long peak, goggles with tear-offs, chin bar with mouthpiece")
@@ -203,6 +318,35 @@ private func haloHelmet() -> HelmetEntry {
     // Gesture 3: a light runs up the pillar.
     dynamics += hChase(HShape.spans(hPoly(pillar, closed: false)), hex: 0xFFD0E2, width: 16, gesture: 3)
 
+
+    // Gesture 4: the red flag: the visor goes red.
+    dynamics.append(hLamp([hFill(hBox(0, -4, 200, 70), 0xE8352E, 0.5)], gesture: 4, inside: true))
+    // Gesture 5: a car overtakes across the visor, nose to the left. At rest it is off the glass on the right.
+    dynamics.append(HDynamic(
+        draws: [
+            hFill(hPoly([(86, 10), (104, 0), (128, -4), (142, -12), (150, -12), (150, 8), (86, 10)]), 0xE23B3B),
+            hFill(hBox(150, -14, 5, 20), 0xF2F2F2),
+            hFill(hOval(100, 12, 18, 18), 0x0B0C0F),
+            hFill(hOval(134, 12, 18, 18), 0x0B0C0F),
+        ],
+        channel: .gesture(5), offsetX: HRamp(0, -250), insideWindow: true
+    ))
+    // Gesture 6: the sector times at the foot of the glass, as on the timing screen: purple, green, yellow.
+    for (index, hex) in [UInt32(0xB04CFF), 0x2DE06A, 0xFFD60A].enumerated() {
+        dynamics.append(hGlow([hFill(hBox(CGFloat(index - 1) * 36, 13, 30, 9, 3), hex)], gesture: 6,
+                              center: CGFloat(index + 1) / 4, width: 0.25, inside: true))
+    }
+    // Gesture 7: sparks fly from the floor, under the helmet.
+    var sparkLines: [HPath] = []
+    for (x, y, dx, dy) in [(-26, 90, -12, 12), (-10, 94, -6, 14), (8, 94, 6, 14), (24, 90, 12, 12), (0, 96, 0, 13)] as [(CGFloat, CGFloat, CGFloat, CGFloat)] {
+        sparkLines.append(hPoly([(x, y), (x + dx, y + dy)], closed: false))
+    }
+    dynamics.append(HDynamic(
+        draws: [hLine(hTogether(sparkLines), 0xFFB347, 6)],
+        channel: .gesture(7), opacity: HRamp(0, 1), scale: HRamp(0.4, 1.3), pivot: CGPoint(x: 0, y: 92),
+        pulse: HPulse(center: 0.5, width: 0.5)
+    ))
+
     let spec = hHelmet(
         shell: shell, base: 0x1F2126, light: 0x434650,
         lightPath: hCurve([(-98, -20), (-94, -64), (-62, -90), (-30, -94)]), edge: 0xF4B8CC,
@@ -233,6 +377,35 @@ private func haloHelmet() -> HelmetEntry {
         ],
         // A light climbs the pillar.
         hWalk([0.25, 0.5, 0.75, 1], ch: 3, each: 0.1),
+        // The red flag: the visor flashes red, twice, and the eyes widen.
+        [
+            hs(0.06, hold: 0.08, ch: 4, lv: 1, dil: 1.15),
+            hs(0.08, hold: 0.06, .easeIn, ch: 4, lv: 0),
+            hs(0.06, hold: 0.1, ch: 4, lv: 1),
+            hs(0.12, .easeIn, ch: 4, lv: 0, dil: 1),
+        ],
+        // A car overtakes across the visor and the eyes flick after it.
+        [
+            hs(0.04, hold: 0.03, gx: 0.8),
+            hs(0.14, .linear, ch: 5, lv: 0.5, gx: 0),
+            hs(0.14, .linear, ch: 5, lv: 1, gx: -0.8),
+            hReset(5),
+            hs(0.08, gx: 0),
+        ],
+        // The sector times come up, purple, green, yellow, and the eyes check them.
+        [
+            hs(0.1, .linear, ch: 6, lv: 0.25, gx: 0, gy: 0.6),
+            hs(0.1, .linear, ch: 6, lv: 0.5),
+            hs(0.1, .linear, ch: 6, lv: 0.75),
+            hs(0.1, .linear, ch: 6, lv: 1, gx: 0, gy: 0),
+            hReset(6),
+        ],
+        // Sparks fly from the floor and the eyes drop to them.
+        [
+            hs(0.1, hold: 0.06, ch: 7, lv: 0.5, gx: 0, gy: 0.7),
+            hs(0.14, .easeIn, ch: 7, lv: 1, gx: 0, gy: 0),
+            hReset(7),
+        ],
     ]
     return HelmetEntry(spec: spec, gestures: gestures, reference: "Formula 1 helmet behind the halo: titanium arch and central pillar, long visor, radio ear pods")
 }
@@ -278,6 +451,36 @@ private func aviatorHelmet() -> HelmetEntry {
     // Gesture 3: the brass of the goggles flashes.
     dynamics.append(hLamp([hLine(rims, 0xFFE2A0, 12)], gesture: 3))
 
+
+    // Gesture 4: clouds drift across the goggles, in both lenses.
+    let cloud = hTogether([hOval(-60, -28, 30, 14), hOval(-46, -34, 26, 16), hOval(-34, -28, 28, 12)])
+    dynamics.append(HDynamic(
+        draws: [hFill(cloud, 0xE6EFF8, 0.85), hFill(hMove(cloud, 100, 0), 0xE6EFF8, 0.85)],
+        channel: .gesture(4), opacity: HRamp(0, 1), offsetX: HRamp(-8, 26), insideWindow: true,
+        pulse: HPulse(center: 0.5, width: 0.5)
+    ))
+    // Gesture 5: a biplane crosses the goggles, from the left. At rest it is off the glass.
+    dynamics.append(HDynamic(
+        draws: [
+            hFill(hOval(-124, -28, 40, 11), 0xE8E2D2),
+            hFill(hBox(-126, -39, 28, 4), 0xC9C2B0),
+            hFill(hBox(-126, -19, 28, 4), 0xC9C2B0),
+            hFill(hPoly([(-106, -28), (-97, -37), (-97, -27)]), 0xE8E2D2),
+            hFill(hBox(-145, -28, 4, 18), 0xC9C2B0),
+        ],
+        channel: .gesture(5), offsetX: HRamp(0, 244), insideWindow: true
+    ))
+    // Gesture 6: the scarf whips in the wind at the lower right, and settles.
+    dynamics.append(HDynamic(
+        draws: [hFill(hPoly([(74, 100), (150, 86), (140, 97), (152, 108), (74, 106)]), 0xEFE6D2)],
+        channel: .gesture(6), opacity: HRamp(0, 1), rotation: HRamp(-10, 14), pivot: CGPoint(x: 74, y: 103)
+    ))
+    // Gesture 7: lightning: both lenses flash white and a bolt shows in the right one.
+    dynamics.append(hLamp([
+        hFill(hTogether([hOval(-50, 0, 86, 80), hOval(50, 0, 86, 80)]), 0xF4F8FF, 0.4),
+        hFill(hPoly([(58, -34), (40, -2), (54, -2), (42, 34), (68, -8), (54, -8), (68, -34)]), 0xFFF3A0),
+    ], gesture: 7, inside: true))
+
     let spec = hHelmet(
         shell: shell, base: 0x5A3C24, light: 0x8B6240,
         lightPath: hCurve([(-100, -30), (-90, -76), (-56, -104), (-24, -108)]), edge: 0xF0D2B4,
@@ -315,6 +518,34 @@ private func aviatorHelmet() -> HelmetEntry {
             hs(0.1, hold: 0.05, .easeIn, ch: 3, lv: 0),
             hs(0.06, hold: 0.03, ch: 3, lv: 1),
             hs(0.12, .easeIn, ch: 3, lv: 0),
+        ],
+        // Clouds drift across the goggles and the eyes look up at them.
+        [
+            hs(0.14, hold: 0.06, ch: 4, lv: 0.5, gx: 0.3, gy: -0.6),
+            hs(0.18, .easeIn, ch: 4, lv: 1, gx: 0, gy: 0),
+            hReset(4),
+        ],
+        // A biplane crosses the goggles and the eyes follow it.
+        [
+            hs(0.04, hold: 0.03, gx: -0.8, gy: -0.5),
+            hs(0.17, .linear, ch: 5, lv: 0.5, gx: 0, gy: -0.5),
+            hs(0.17, .linear, ch: 5, lv: 1, gx: 0.8, gy: -0.5),
+            hReset(5),
+            hs(0.08, gx: 0, gy: 0),
+        ],
+        // The scarf whips in the wind, and the eyes glance down at it.
+        [
+            hs(0.08, ch: 6, lv: 1, gx: 0.5, gy: 0.6),
+            hs(0.1, .easeInOut, ch: 6, lv: 0.3),
+            hs(0.1, .easeInOut, ch: 6, lv: 0.8),
+            hs(0.14, .easeIn, ch: 6, lv: 0, gx: 0, gy: 0),
+        ],
+        // Lightning: the lenses flash twice and the eyes widen.
+        [
+            hs(0.04, hold: 0.06, ch: 7, lv: 1, dil: 1.2),
+            hs(0.06, hold: 0.05, .easeIn, ch: 7, lv: 0),
+            hs(0.04, hold: 0.08, ch: 7, lv: 1),
+            hs(0.14, .easeIn, ch: 7, lv: 0, dil: 1),
         ],
     ]
     return HelmetEntry(spec: spec, gestures: gestures, reference: "Leather flying helmet with brass-rimmed goggles, ear flaps and sun lenses")

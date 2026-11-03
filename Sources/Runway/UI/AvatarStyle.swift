@@ -156,81 +156,107 @@ public enum AvatarStyle: String, Sendable, CaseIterable {
             return "Graphite helmet with an orange band. The gold visor is the eyelid: it "
                 + "rests as a strip and drops to blink. Now and then it lifts and taps back, "
                 + "a light runs along the band, a glint slides over the gold, or the side latches light."
+                + " Also: Earth rises in the visor, the band flares like a beacon, the connector sends Morse, the glass fogs."
         case .orlan:
             return "Round window and a silver visor. The lamp flashes and the camera focuses, "
                 + "a light runs round the porthole, the eyes glance at the camera as it clicks, or the "
                 + "lamp's beam sweeps the face."
+                + " Also: the camera swivels and searches, a satellite crosses the window, the warning band flashes left and right, the seal screws light green."
         case .stealth:
             return "Almost black, with one white line and a blue visor. Now and then a "
                 + "glint sweeps the glass while the eyes track it, a line scans the window, "
                 + "the eyes read down the glass, or targeting brackets close on one eye."
+                + " Also: a radar arm sweeps the glass, a reticle closes on the middle, the link light blinks, two readouts come up."
         case .papaya:
             return "Racing helmet in black and papaya with a number seven. The tear-off "
                 + "tab flicks and the sun visor dips, the number shines, the eyes shiver "
                 + "like an engine, or it winks."
+                + " Also: the start lights, a chequered flag, rain on the visor, the seven turns into a one."
         case .endurance:
             return "Gunmetal endurance helmet with hi-vis chevrons. A pit-lane strobe "
                 + "flashes the chevrons and the number, the sun strip dips, a light "
                 + "runs along the chevrons, or a glare fills the visor."
+                + " Also: a chevron advances, the vents light in turn, a bug hits the visor, the badge inverts."
         case .fire:
             return "Black fire helmet with a red front shield. The shield catches a headlight, "
                 + "the face shield dips, a light runs along the reflective brim, or the hood is pulled up."
+                + " Also: the crown pads flash like a siren, smoke rises past the face, embers lift off the brim, water drips from it."
         case .diver:
             return "Brass diving helmet. Bubbles leave the exhaust valve, the wing nuts light round "
                 + "the collar, the front window swings half shut, or the spit cock turns."
+                + " Also: shafts of sunlight drift across the glass, a fish swims by, light runs round the rim, the side ports flash."
         case .kabuto:
             return "Black samurai kabuto with a gold crescent. The crest catches the light, the "
                 + "neck-guard lacing lights from the top, the wing flaps spread, or the brow plate scowls."
+                + " Also: a sword cut flashes across the face, cherry petals fall, a glint slides along the crescent, a kiai flares."
         case .greathelm:
             return "Flat-topped great helm with a cross-shaped slit. The cross bands flash, "
                 + "the rivets run round the face, the visor slams down, or the breaths puff."
+                + " Also: an arrow whistles past, a sword throws sparks off the helm, a torch is carried by, the cross glows."
         case .gridiron:
             return "Football helmet with a blue stripe. A light runs down the stripe, the facemask "
                 + "rattles, the chin strap snaps shut, or the eye shield comes down."
+                + " Also: a penalty flag is thrown, a football crosses the face, the floodlights show in the shield, confetti falls."
         case .moto:
             return "Motocross helmet with a yellow peak and goggles. A tear-off film is peeled "
                 + "off the lenses, the peak lifts, the mouthpiece slides open, or the goggle tint drops."
+                + " Also: roost flecks the goggles, the rim flashes with the revs, a glint crosses the lenses, hard breathing puffs."
         case .halo:
             return "Formula 1 helmet behind the halo. A light runs over the arch, the visor "
                 + "flicks down, the radio crackles in the ear pods, or a light climbs the pillar."
+                + " Also: the red flag, a car overtakes in the visor, the sector times, sparks fly from the floor."
         case .aviator:
             return "Leather flying helmet with brass goggles. The ear flaps flutter, the sun lenses "
                 + "flip down, the chin-strap buckle catches the light, or the goggle brass flashes."
+                + " Also: clouds drift across the goggles, a biplane crosses them, the scarf whips, lightning flashes."
         case .fighter:
             return "Pilot's flight helmet with an oxygen mask. The sun visor comes down, the oxygen "
                 + "flow runs along the hose, the receivers click, or the mask breathes."
+                + " Also: g-force closes the sight to a tunnel, a warning light flashes, the horizon tilts, a sonic boom opens a ring."
         case .miner:
             return "Miner's hard hat with a cap lamp. The lamp flares, power runs along the cable, "
                 + "the respirator cartridges turn, or the ribs of the crown light in turn."
+                + " Also: dust sifts down, the lamp's battery fails, a gem pops up, a pickaxe swings past."
         case .welder:
             return "Auto-darkening welding helmet. The sensors flash and the lens goes dark, the shade "
                 + "dial turns, the power light blinks, or three tack welds light the lens."
+                + " Also: sparks fall over the chin, a bead is run along the lens, the sensors self-test, a light runs along the stripe."
         case .corinthian:
             return "Corinthian bronze helm with a red crest. The crest sways, a light runs down the "
                 + "nasal bar, the brow frowns, or the helm slips down over the eyes."
+                + " Also: the cheek-pieces flash, a light runs over the crest, a blade flashes across the face, a shield is raised."
         case .kendo:
             return "Indigo kendo men with a steel grille. The grille rings bar by bar, the shoulder flaps bob, the throat guard swings, or the stitching of the crown lights from the middle out."
+                + " Also: a bamboo sword strikes down the middle, the referee's flag goes up, a drop of sweat runs down, two swords lock in an X."
         case .murmillo:
             return "Gladiator's helmet with a red fin. The fin catches the light, a light runs across the grille, the visor is slammed down, or the brim flashes as the crowd roars."
+                + " Also: a net is thrown over the face, a trident thrusts at the grille, a light runs along the brim, the grille clangs."
         case .bascinet:
             return "Pointed medieval bascinet with a mail curtain. The visor lifts on its pivots, a light runs down the mail, the breaths puff, or the tip of the skull catches the light."
+                + " Also: the pennon flutters, the coat of arms shows over the mail, a volley of arrows falls, a sword is raised."
         case .gjermundbu:
             return "Viking-age helmet with a guard round the eyes. The spectacles flash, the nose guard swings, a light runs through the mail, or the rivets of the band light in pairs."
+                + " Also: runes light on the brow, an axe spins across, Thor's hammer lights, snow falls."
         case .ski:
             return "Ski helmet with goggles. The vent slots light one by one, the ear pads flex, the buckle catches the light, or the lens tint comes down."
+                + " Also: powder sprays across the goggles, the mountains show in the lens, a slalom gate flashes past, the sun glares."
         case .forestry:
             return "Forestry helmet with ear defenders and a mesh visor. The defenders clamp in, a light runs across the mesh, the visor flips down, or the hi-vis band strobes."
+                + " Also: wood chips fly, a pine falls, the radio crackles in the ear defenders, a bird lands on the hat."
         case .custodian:
             return "Police custodian helmet with a rose top. The rose catches the light, the front plate shines, the chin-strap buckle glints, or the brim tips down in a salute."
+                + " Also: a patrol car's blue lights wash the helmet, a cup of tea, the badge flashes, the helmet rings like a bell."
         case .fencing:
             return "Fencing mask with a violet bib. A hit registers on the bib, a light runs across the mesh, the crown strap is pulled tight, or the mask is lifted in a salute."
+                + " Also: a foil lunges, the scoring lights show red and green, the mesh flexes, a light runs along the bib."
         case .heli:
             return "Helicopter crew helmet with a headset. The boom swings up from the mouth, the sun visor comes down, the ear cups flash on a call, or a light runs along the cord."
+                + " Also: the rotor's shadow flickers across the glass, a winch cable comes down, night vision goes green, the rescue cross shows."
         case .jockey:
             return "Jockey's helmet in purple and gold silks. The pom bobs, the four quarters flash in turn, the goggles are pulled down, or the chin-strap buckle glints."
+                + " Also: a horseshoe, a whip cracks, the finish line crosses, the trophy is raised."
         }
     }
-
     /// Everything but the original eye is a helmet.
     public var isHelmet: Bool { self != .classic }
 

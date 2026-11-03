@@ -492,8 +492,9 @@ bright the light is — so every helmet blinks, looks around, nods and dozes
 exactly when the eye does. The lid becomes a sun visor that slides down over the
 window; the breath becomes the LEDs brightening.
 
-Each helmet also has four gestures of its own, short ones that between them make
-up about one beat in eight, and that are not the same on any two helmets. Apollo:
+Each helmet also has eight gestures of its own, short ones that between them make
+up about one beat in five, and that are not the same on any two helmets. The first
+four of each are built round its visor and its lights. Apollo:
 the gold visor lifts and taps back; a light runs along the orange band; a glint
 slides over the gold; the latches at the sides light as the eyes glance at each.
 Orlan: the lamp flashes while the camera focuses; a light runs round the porthole;
@@ -505,6 +506,17 @@ flashes its papaya edge; the number shines; the eyes shiver like an engine; it
 winks. Endurance: a pit-lane strobe; the sun strip dips; a light runs along the
 chevrons; the lights of a car behind fill the visor and the eyes look away.
 
+The other four of each are small events in the helmet's own world. Apollo: Earth
+rises in the visor and the eyes follow it up; the band flares twice like a beacon; the
+connector sends a message in Morse; the glass fogs over. Orlan: the camera swivels
+and searches with its view cone; a satellite crosses the porthole; the warning band
+flashes left and right; the seal screws light green. Stealth: a radar arm sweeps the
+glass; a reticle closes on the middle; the link light blinks; two readouts come up,
+one on each side. Papaya: the five lights of a race start, the eyes up at them, and
+they are away; a chequered flag crosses the glass; it rains; the seven turns into a
+one. Endurance: the lower chevron advances; the vents light from the top down; a bug
+hits the visor; the badge inverts.
+
 After those five come 22 more, each a real object with a silhouette of its own and
 not the notch's: a fire helmet with a red front shield, a brass diving helmet, a samurai
 kabuto, a great helm, an American football helmet, a motocross helmet, a Formula 1
@@ -513,9 +525,12 @@ an oxygen mask, a miner's hard hat with a lamp, an auto-darkening welding helmet
 Corinthian helm, a kendo men, a murmillo's helmet, a hounskull bascinet, the
 Gjermundbu helmet, a ski helmet, a forestry helmet with ear defenders and a mesh
 visor, a British custodian helmet, a fencing mask, a helicopter crew helmet and a
-jockey's cap in its silks. Each has four gestures drawn from a part of the real thing —
-the halo's arch lights, the miner's lamp flares, the welder's sensors flash and the
-lens goes dark, the diver's spit cock turns, the great helm's visor slams. They are
+jockey's cap in its silks. Each has eight gestures drawn from a part of the real thing
+or from something that happens to it — the halo's arch lights and a car overtakes in
+the visor, the miner's lamp flares and then its battery fails, the welder's sensors
+flash and the lens goes dark, the diver's spit cock turns and a fish swims by, the
+great helm's visor slams and an arrow whistles past, a kendo referee raises the white
+flag. They are
 described as plain data like the first five (`HelmetData*.swift`, registered in
 `HelmetCollection`), so the spike checks and draws them without a screen. Settings →
 Face lists them by family in a scrolling grid: a preview is built only when it scrolls
@@ -523,8 +538,11 @@ into view and is a still picture with no animator, so the ones not yet reached c
 
 Every gesture is in the same weighted random draw as every other beat (weight 4
 each, no order, no timer of its own), so which one comes out is chance: each is
-about 3% of the draws on wall power, 11% for a helmet's four. All of them are frugal,
-so on battery all four stay in the draw, and in Low Power Mode none does.
+about 2.5% of the draws on wall power, 20% for a helmet's eight (25% on battery,
+where the dearer beats are gone). All of them are frugal, so on battery all eight
+stay in the draw, and in Low Power Mode none does. The beats themselves come no
+faster than before: a helmet shows a gesture about one beat in five instead of one
+in nine, and the eye beats are the rest.
 `make spikes-offline` models that draw per power source and reads the real table
 out of `IdleMark.swift`, so it fails if the weights or the rules move.
 
@@ -546,9 +564,12 @@ the eye uses, so a face adds no timer and no continuous animation: a gesture is
 a beat like any other and wakes the app only for its own few steps. Each gesture is
 counted like every other beat (at most six moves and half a second of animation)
 and so is on the battery menu, and absent in Low Power Mode, which keeps only
-lid movement. Worked out from the beat weights and costs, adding the gestures
-changes the mean animated seconds per beat by between −6.4% and −3.6% on wall
-power and between −4.5% and +1.1% on battery, depending on the helmet.
+lid movement. Worked out from the beat weights and costs, a helmet with its eight
+gestures spends between 10% and 6% fewer animated seconds per beat than the eye on
+wall power (0.51 to 0.53 s against 0.56 s) and between 5% fewer and 2.5% more on
+battery (0.34 to 0.36 s against 0.35 s), depending on the helmet. A helmet has
+about twelve moving parts on average and at most nineteen, each drawn once and
+only moved, faded or turned when its own gesture plays; the spike caps them at 24.
 `make spikes-offline` checks the helmets without a screen: outlines, how the eyes
 move, and that every gesture is that cheap, drives a channel of its own, and
 always puts everything back.

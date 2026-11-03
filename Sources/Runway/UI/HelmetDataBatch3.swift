@@ -50,6 +50,31 @@ private func fighterHelmet() -> HelmetEntry {
         channel: .gesture(3), scale: HRamp(1, 1.16), pivot: CGPoint(x: 0, y: 68)
     ))
 
+
+    // Gesture 4: g-force: the edges of the sight close in, a dark ring round a hole that narrows.
+    dynamics.append(HDynamic(
+        draws: [HDraw.fill(hBox(0, -8, 260, 130) + hOval(0, -8, 150, 64), HColor(0x000000, 0.9), evenOdd: true)],
+        channel: .gesture(4), opacity: HRamp(0, 1), scale: HRamp(1.5, 0.55), pivot: CGPoint(x: 0, y: -8),
+        insideWindow: true
+    ))
+    // Gesture 5: a warning light: a red triangle in the corner of the glass.
+    dynamics.append(hLamp([hFill(hPoly([(-72, -20), (-60, 2), (-84, 2)]), 0xFF4B3E)], gesture: 5, inside: true))
+    // Gesture 6: the horizon tilts: a pale line across the glass that banks one way and then the other.
+    dynamics.append(HDynamic(
+        draws: [
+            hLine(hPoly([(-86, -8), (86, -8)], closed: false), 0xBFD8C0, 6),
+            hLine(hPoly([(0, -8), (0, 6)], closed: false), 0xBFD8C0, 6),
+        ],
+        channel: .gesture(6), opacity: HRamp(0, 1), rotation: HRamp(-16, 16), pivot: CGPoint(x: 0, y: -8),
+        insideWindow: true, pulse: HPulse(center: 0.5, width: 0.5)
+    ))
+    // Gesture 7: a sonic boom: a ring opens on the glass.
+    dynamics.append(HDynamic(
+        draws: [hLine(hOval(0, -8, 70, 44), 0xEAF3FF, 6)],
+        channel: .gesture(7), opacity: HRamp(0, 1), scale: HRamp(0.5, 2.2), pivot: CGPoint(x: 0, y: -8),
+        insideWindow: true, pulse: HPulse(center: 0.5, width: 0.5)
+    ))
+
     let spec = hHelmet(
         shell: shell, base: 0x3C413B, light: 0x6A7066,
         lightPath: hCurve([(-104, -20), (-98, -64), (-64, -100), (-30, -104)]), edge: 0xD2DAC6,
@@ -81,6 +106,34 @@ private func fighterHelmet() -> HelmetEntry {
             hs(0.12, hold: 0.02, .easeInOut, ch: 3, lv: 0),
             hs(0.1, hold: 0.04, .easeInOut, ch: 3, lv: 1),
             hs(0.12, .easeInOut, ch: 3, lv: 0, dil: 1),
+        ],
+        // G-force: the sight closes in to a tunnel, the eyes narrow, and it opens again.
+        [
+            hs(0.16, hold: 0.12, .easeIn, ch: 4, lv: 1, dil: 0.9),
+            hs(0.14, .easeOut, ch: 4, lv: 0, dil: 1),
+        ],
+        // A warning light flashes three times and the eyes snap to it.
+        [
+            hs(0.04, hold: 0.04, ch: 5, lv: 1, gx: -0.7, gy: 0),
+            hs(0.04, hold: 0.04, ch: 5, lv: 0),
+            hs(0.04, hold: 0.04, ch: 5, lv: 1),
+            hs(0.04, hold: 0.04, ch: 5, lv: 0),
+            hs(0.04, hold: 0.06, ch: 5, lv: 1),
+            hs(0.1, ch: 5, lv: 0, gx: 0, gy: 0),
+        ],
+        // The horizon banks left, level, right, and the eyes lean with it.
+        [
+            hs(0.1, .linear, ch: 6, lv: 0.25, gx: -0.4, gy: 0),
+            hs(0.1, .linear, ch: 6, lv: 0.5, gx: 0, gy: 0),
+            hs(0.1, .linear, ch: 6, lv: 0.75, gx: 0.4, gy: 0),
+            hs(0.1, .linear, ch: 6, lv: 1, gx: 0, gy: 0),
+            hReset(6),
+        ],
+        // A sonic boom: a ring opens across the glass and the eyes widen.
+        [
+            hs(0.12, hold: 0.04, ch: 7, lv: 0.5, dil: 1.15),
+            hs(0.16, .easeIn, ch: 7, lv: 1, dil: 1),
+            hReset(7),
         ],
     ]
     return HelmetEntry(spec: spec, gestures: gestures, reference: "Fixed-wing pilot's flight helmet: visor housing, sun visor, bayonet receivers, oxygen mask and hose")
@@ -132,6 +185,34 @@ private func minerHelmet() -> HelmetEntry {
                               center: CGFloat(index + 1) / 5, width: 0.2))
     }
 
+
+    // Gesture 4: dust sifts down from the roof, over the face.
+    for (x, y, run, hex) in [(-70, -50, 90, 0x9A8F7E), (-22, -60, 100, 0xB3A892), (30, -56, 96, 0x9A8F7E), (74, -48, 88, 0xB3A892)] as [(CGFloat, CGFloat, CGFloat, UInt32)] {
+        dynamics.append(HDynamic(
+            draws: [hFill(hBox(x, y, 14, 14, 3), hex)],
+            channel: .gesture(4), opacity: HRamp(0, 1), offsetY: HRamp(0, run), pulse: HPulse(center: 0.5, width: 0.5)
+        ))
+    }
+    // Gesture 5: the battery is low: a dark disc over the lamp's lens, which blinks out.
+    dynamics.append(hLamp([hFill(hOval(0, -70, 28, 28), 0x232428)], gesture: 5))
+    // Gesture 6: the miner finds a gem: it pops up between the eyes.
+    dynamics.append(HDynamic(
+        draws: [
+            hFill(hPoly([(0, 6), (12, 14), (8, 34), (-8, 34), (-12, 14)]), 0x5FE3FF),
+            hFill(hPoly([(0, 6), (12, 14), (0, 18), (-12, 14)]), 0xC9F7FF),
+        ],
+        channel: .gesture(6), opacity: HRamp(0, 1), scale: HRamp(0.3, 1), pivot: CGPoint(x: 0, y: 20), insideWindow: true
+    ))
+    // Gesture 7: a pickaxe swings past the right of the helmet.
+    dynamics.append(HDynamic(
+        draws: [
+            hLine(hPoly([(112, 100), (112, 20)], closed: false), 0xA9783C, 9),
+            hFill(hPoly([(88, 22), (112, 6), (136, 22), (128, 26), (112, 16), (96, 26)]), 0xC3CAD6),
+        ],
+        channel: .gesture(7), opacity: HRamp(0, 1), rotation: HRamp(-50, 25), pivot: CGPoint(x: 112, y: 100),
+        pulse: HPulse(center: 0.5, width: 0.5)
+    ))
+
     let spec = hHelmet(
         shell: shell, base: 0x2D2F34, light: 0x4F5259,
         lightPath: hCurve([(-102, -50), (-96, -82), (-62, -106), (-30, -110)]), edge: 0xFFC9A0,
@@ -159,6 +240,32 @@ private func minerHelmet() -> HelmetEntry {
         ],
         // The ribs of the crown light, left to right.
         hWalk([0.2, 0.4, 0.6, 0.8, 1], ch: 3, each: 0.08),
+        // Dust sifts down from the roof and the eyes narrow.
+        [
+            hs(0.12, hold: 0.06, ch: 4, lv: 0.5, dil: 0.85),
+            hs(0.16, .easeIn, ch: 4, lv: 1, dil: 1),
+            hReset(4),
+        ],
+        // The lamp's battery is low: it goes out twice and the eyes look up at it.
+        [
+            hs(0.05, hold: 0.08, ch: 5, lv: 1, gx: 0, gy: -0.8),
+            hs(0.06, hold: 0.06, .easeIn, ch: 5, lv: 0),
+            hs(0.05, hold: 0.1, ch: 5, lv: 1),
+            hs(0.1, .easeIn, ch: 5, lv: 0, gx: 0, gy: 0),
+        ],
+        // A gem pops up between the eyes and the eyes look down at it.
+        [
+            hs(0.1, hold: 0.22, ch: 6, lv: 1, gx: 0, gy: 0.6, dil: 1.15),
+            hs(0.14, .easeIn, ch: 6, lv: 0, gx: 0, gy: 0, dil: 1),
+        ],
+        // A pickaxe swings past and the eyes follow it.
+        [
+            hs(0.04, hold: 0.03, gx: 0.8),
+            hs(0.12, .linear, ch: 7, lv: 0.5, gx: 0.8),
+            hs(0.12, .linear, ch: 7, lv: 1, gx: 0.5),
+            hReset(7),
+            hs(0.08, gx: 0),
+        ],
     ]
     return HelmetEntry(spec: spec, gestures: gestures, reference: "Miner's hard hat with a cap lamp and cable, and a half-mask respirator")
 }
@@ -201,6 +308,34 @@ private func welderHelmet() -> HelmetEntry {
     // Gesture 3: the arc is seen through the lens, in three tack welds.
     dynamics.append(hLamp([hFill(lens, 0xBFFFD8, 0.55)], gesture: 3, inside: true))
 
+
+    // Gesture 4: a fountain of sparks falls over the chin.
+    var shower: [HPath] = []
+    for (dx, dy) in [(-46, 38), (-28, 46), (-10, 50), (10, 50), (28, 46), (46, 38)] as [(CGFloat, CGFloat)] {
+        shower.append(hPoly([(dx * 0.35, 36), (dx, 36 + dy)], closed: false))
+    }
+    dynamics.append(HDynamic(
+        draws: [hLine(hTogether(shower), 0xFFB347, 6)],
+        channel: .gesture(4), opacity: HRamp(0, 1), offsetY: HRamp(0, 14), scale: HRamp(0.6, 1.2),
+        pivot: CGPoint(x: 0, y: 36), pulse: HPulse(center: 0.5, width: 0.5)
+    ))
+    // Gesture 5: a bead is run: a bright spot travels along the foot of the lens, a short line trailing it.
+    dynamics.append(HDynamic(
+        draws: [hFill(hOval(-70, 14, 16, 16), 0xFFFFFF), hLine(hPoly([(-92, 14), (-74, 14)], closed: false), 0xFFB347, 7)],
+        channel: .gesture(5), opacity: HRamp(0, 1), offsetX: HRamp(0, 140), insideWindow: true,
+        pulse: HPulse(center: 0.5, width: 0.5)
+    ))
+    // Gesture 6: self-test: the four arc sensors light in turn, left to right.
+    for (index, x) in [-76, -48, 48, 76].enumerated() {
+        dynamics.append(hGlow([hFill(hOval(CGFloat(x), -68, 17, 17), 0xDFFFEA)], gesture: 6,
+                              center: CGFloat(index + 1) / 5, width: 0.2))
+    }
+    // Gesture 7: a light runs along the green stripe.
+    dynamics += hChase(
+        HShape.spans(hPoly([(-130, -90), (-65, -90), (0, -90), (65, -90), (130, -90)], closed: false)),
+        hex: 0xE6FFEF, width: 7, gesture: 7, clip: true
+    )
+
     let spec = hHelmet(
         shell: shell, base: 0x2A2C32, light: 0x4C4F58,
         lightPath: hCurve([(-114, 40), (-116, -40), (-110, -90), (-90, -104)]), edge: 0xB9F0D0,
@@ -241,6 +376,31 @@ private func welderHelmet() -> HelmetEntry {
             hs(0.04, hold: 0.05, .linear, ch: 3, lv: 1),
             hs(0.04, .linear, ch: 3, lv: 0, dil: 1),
         ],
+        // Sparks fall over the chin and the eyes narrow.
+        [
+            hs(0.1, hold: 0.08, ch: 4, lv: 0.5, dil: 0.8),
+            hs(0.16, .easeIn, ch: 4, lv: 1, dil: 1),
+            hReset(4),
+        ],
+        // A bead is run along the lens and the eyes follow it.
+        [
+            hs(0.04, hold: 0.03, gx: -0.8, gy: 0.3),
+            hs(0.14, .linear, ch: 5, lv: 0.5, gx: 0, gy: 0.3),
+            hs(0.14, .linear, ch: 5, lv: 1, gx: 0.8, gy: 0.3),
+            hReset(5),
+            hs(0.08, gx: 0, gy: 0),
+        ],
+        // Self-test: the arc sensors light in turn and the eyes look up at them.
+        [
+            hs(0.08, .linear, ch: 6, lv: 0.2, gx: 0, gy: -0.7),
+            hs(0.08, .linear, ch: 6, lv: 0.4),
+            hs(0.08, .linear, ch: 6, lv: 0.6),
+            hs(0.08, .linear, ch: 6, lv: 0.8),
+            hs(0.08, .linear, ch: 6, lv: 1, gx: 0, gy: 0),
+            hReset(6),
+        ],
+        // A light runs along the green stripe.
+        hWalk([0.2, 0.4, 0.6, 0.8, 1], ch: 7, each: 0.08),
     ]
     return HelmetEntry(spec: spec, gestures: gestures, reference: "Auto-darkening welding helmet: arc sensors, shade lens, shade dial, power light")
 }
@@ -279,6 +439,27 @@ private func corinthianHelmet() -> HelmetEntry {
     // Gesture 2: the brow lights as the eyes narrow.
     dynamics.append(hLamp([hLine(hCurve(brow), 0xE6FFF4, 8, clip: true)], gesture: 2))
 
+
+    // Gesture 4: the polish of the cheek-pieces flashes, left then right.
+    let glintLeft = hPoly([(-76, 16), (-66, 16), (-54, 70), (-64, 70)])
+    dynamics.append(hGlow([hFill(glintLeft, 0xE6FFF4, 0.85, clip: true)], gesture: 4, center: 1.0 / 3, width: 1.0 / 3))
+    dynamics.append(hGlow([hFill(hMirror(glintLeft), 0xE6FFF4, 0.85, clip: true)], gesture: 4, center: 2.0 / 3, width: 1.0 / 3))
+    // Gesture 5: a light runs over the crest.
+    dynamics += hChase(HShape.spans(hCurve([(-60, -78), (-30, -106), (30, -106), (60, -78)])), hex: 0xFFE9E5, width: 8, gesture: 5)
+    // Gesture 6: a sword blade flashes across the face from left to right.
+    dynamics.append(HDynamic(
+        draws: [hFill(hPoly([(-6, -100), (6, -100), (-4, 100), (-16, 100)]), 0xFFFFFF, 0.75, clip: true)],
+        channel: .gesture(6), opacity: HRamp(0, 1), offsetX: HRamp(-70, 70), pulse: HPulse(center: 0.5, width: 0.5)
+    ))
+    // Gesture 7: the shield is raised in front of the chin: bronze, with a red lambda.
+    dynamics.append(HDynamic(
+        draws: [
+            hFill(hOval(0, 82, 52, 52), 0xB98A4A), hLine(hOval(0, 82, 52, 52), 0x7A5A2C, 5),
+            hFill(hPoly([(-4, 64), (4, 64), (16, 98), (8, 98), (0, 76), (-8, 98), (-16, 98)]), 0xB3322A),
+        ],
+        channel: .gesture(7), opacity: HRamp(0, 1), scale: HRamp(0.5, 1), pivot: CGPoint(x: 0, y: 106)
+    ))
+
     let spec = hHelmet(
         shell: shell, base: 0x3E5A52, light: 0x6C9A8A,
         lightPath: hCurve([(-100, -16), (-96, -56), (-66, -82), (-30, -85)]), edge: 0xBFE6D8,
@@ -308,6 +489,34 @@ private func corinthianHelmet() -> HelmetEntry {
         [
             hs(0.12, hold: 0.18, ch: 3, lv: 1),
             hs(0.16, .easeIn, ch: 3, lv: 0),
+        ],
+        // The polish of the cheek-pieces flashes, left then right, and the eyes glance at each.
+        [
+            hs(0.07, .linear, ch: 4, lv: 1.0 / 3, gx: -0.8, gy: 0),
+            hs(0.07, .linear, ch: 4, lv: 2.0 / 3, gx: 0.8, gy: 0),
+            hs(0.1, .linear, ch: 4, lv: 1, gx: 0, gy: 0),
+            hReset(4),
+        ],
+        // A light runs over the crest and the eyes look up at it.
+        [
+            hs(0.09, .linear, ch: 5, lv: 0.25, gx: 0, gy: -0.8),
+            hs(0.09, .linear, ch: 5, lv: 0.5),
+            hs(0.09, .linear, ch: 5, lv: 0.75),
+            hs(0.09, .linear, ch: 5, lv: 1, gx: 0, gy: 0),
+            hReset(5),
+        ],
+        // A blade flashes across the face, and the eyes follow it.
+        [
+            hs(0.04, hold: 0.03, gx: -0.8),
+            hs(0.14, .linear, ch: 6, lv: 0.5, gx: 0),
+            hs(0.14, .linear, ch: 6, lv: 1, gx: 0.8),
+            hReset(6),
+            hs(0.08, gx: 0),
+        ],
+        // The shield is raised in front of the chin and lowered.
+        [
+            hs(0.12, hold: 0.2, ch: 7, lv: 1, dil: 0.9),
+            hs(0.16, .easeIn, ch: 7, lv: 0, dil: 1),
         ],
     ]
     return HelmetEntry(spec: spec, gestures: gestures, reference: "Corinthian bronze helm: crest, cheek-pieces, T-shaped opening, nasal bar")

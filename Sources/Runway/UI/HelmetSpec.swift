@@ -372,7 +372,9 @@ private func astronaut(
     base: UInt32, light: UInt32, edge: UInt32, shade: Double = 30, rim: UInt32, rimWidth: CGFloat = 13,
     bands: [HDraw], window: HPath, top: CGFloat, bottom: CGFloat, width: CGFloat,
     visor: (fill: UInt32, edge: UInt32, hi: UInt32, lo: UInt32), eye: (dim: UInt32, bright: UInt32),
-    above: [HDraw], dynamics: [HDynamic], raisesVisor: Bool = false
+    above: [HDraw], dynamics: [HDynamic], raisesVisor: Bool = false,
+    // The gestures after the first four, drawn in `HelmetOriginals`.
+    extra: [HDynamic] = []
 ) -> HelmetSpec {
     let centerY = (top + bottom) / 2
     let half = (bottom - top + 10) / 2
@@ -396,7 +398,7 @@ private func astronaut(
             ],
             edgeFlash: nil
         ),
-        above: above, dynamics: dynamics, raisesVisor: raisesVisor
+        above: above, dynamics: dynamics + extra, raisesVisor: raisesVisor
     )
 }
 
@@ -406,7 +408,8 @@ private func racer(
     window: HPath, top: CGFloat, bottom: CGFloat, width: CGFloat, eyeY: CGFloat,
     glass: UInt32 = 0x0D0E11, rim: UInt32 = 0x040405, restFraction: CGFloat = 0,
     plate: (fill: UInt32, edge: UInt32, flash: UInt32), eye: (dim: UInt32, bright: UInt32),
-    above: [HDraw], dynamics: [HDynamic], visorNudge: CGFloat = 0, visorGesture: Int = 0
+    above: [HDraw], dynamics: [HDynamic], visorNudge: CGFloat = 0, visorGesture: Int = 0,
+    extra: [HDynamic] = []
 ) -> HelmetSpec {
     HelmetSpec(
         below: finish(base: base, light: light, shade: shade, livery: livery),
@@ -421,7 +424,7 @@ private func racer(
         ),
         highlights: [stroke(poly([(-112, eyeY - 16), (-96, eyeY - 38), (-60, eyeY - 42)], closed: false), 0xFFFFFF, 5, 0.14)],
         plate: HPlate(fill: HColor(plate.fill), edge: HColor(plate.edge), edgeWidth: 4, deco: [], edgeFlash: HColor(plate.flash)),
-        above: above, dynamics: dynamics, raisesVisor: false, visorNudge: visorNudge, visorGesture: visorGesture
+        above: above, dynamics: dynamics + extra, raisesVisor: false, visorNudge: visorNudge, visorGesture: visorGesture
     )
 }
 
@@ -454,7 +457,8 @@ extension HelmetSpec {
                         opacity: HRamp(0, 1), pulse: HPulse(center: 0.25, width: 0.25)),
                HDynamic(draws: [paint(box(139, -6, 22, 48, 6), 0xFF8A3D)], channel: .gesture(3),
                         opacity: HRamp(0, 1), pulse: HPulse(center: 0.75, width: 0.25))],
-        raisesVisor: true
+        raisesVisor: true,
+        extra: HelmetOriginals.dynamics(for: .apollo)
     )
 
     /// A round window, a silver visor, a red band; a lamp on the left and a
@@ -470,6 +474,8 @@ extension HelmetSpec {
         eye: (dim: 0xD5DADB, bright: 0xFFFFFF),
         above: orlanHardware(),
         dynamics: [
+            // The camera, a part of its own so that gesture 4 can swivel it.
+            HelmetOriginals.orlanCamera,
             HDynamic(draws: [paint(oval(-138, -48, 13, 13), 0xF2D16B)], channel: .led, opacity: HRamp(0.55, 1)),
             // The lamp comes on, swelling a little, and the camera finds its focus.
             HDynamic(draws: [paint(oval(-138, -48, 13, 13), 0xFFF3B0)], channel: .gesture(0),
@@ -490,7 +496,8 @@ extension HelmetSpec {
                         pulse: HPulse(center: 0.5, width: 0.5)),
                HDynamic(draws: [paint(poly([(-138, -48), (182, -110), (182, 14)]), 0xFFF3B0, 0.30, clip: true)],
                         channel: .gesture(3), opacity: HRamp(0, 1), rotation: HRamp(-12, 42),
-                        pivot: CGPoint(x: -138, y: -48), pulse: HPulse(center: 0.5, width: 0.5))]
+                        pivot: CGPoint(x: -138, y: -48), pulse: HPulse(center: 0.5, width: 0.5))],
+        extra: HelmetOriginals.dynamics(for: .orlan)
     )
 
     /// Nearly black, a single white line, an iridium-blue visor. The darkest.
@@ -528,7 +535,8 @@ extension HelmetSpec {
                      ]), 0x9FD4FF, 10)],
                      channel: .gesture(3), opacity: HRamp(0, 1), scale: HRamp(1.55, 1),
                      pivot: CGPoint(x: 48, y: -7), insideWindow: true),
-        ]
+        ],
+        extra: HelmetOriginals.dynamics(for: .stealth)
     )
 
     /// Black with a papaya band, a white pinstripe, a seven, and a visor with a
@@ -565,7 +573,8 @@ extension HelmetSpec {
             HDynamic(draws: [paint(box(-48, 10, 34, 5, 2.5), 0x3A3D45)], channel: .gesture(3),
                      opacity: HRamp(0, 1), offsetY: HRamp(-34, 0), insideWindow: true),
         ],
-        visorNudge: 0.2
+        visorNudge: 0.2,
+        extra: HelmetOriginals.dynamics(for: .papaya)
     )
 
     /// Matt gunmetal, hi-vis chevrons, a sun strip that never goes away. The
@@ -594,7 +603,8 @@ extension HelmetSpec {
             // Gesture 3: the lights of a car behind fill the visor and the eyes look away.
             + [HDynamic(draws: [paint(box(0, -8, 280, 124), 0xDFF6FF, 0.42)], channel: .gesture(3),
                         opacity: HRamp(0, 1), insideWindow: true)],
-        visorNudge: 0.3, visorGesture: 1
+        visorNudge: 0.3, visorGesture: 1,
+        extra: HelmetOriginals.dynamics(for: .endurance)
     )
 }
 
@@ -615,10 +625,8 @@ private func apolloHardware() -> [HDraw] {
 }
 
 private func orlanHardware() -> [HDraw] {
+    // The camera on the right is not here: it swivels, so it is a dynamic part of its own.
     var parts: [HDraw] = []
-    parts.append(paint(box(136, -48, 36, 26, 5), 0x15161A))
-    parts.append(paint(oval(140, -48, 13, 13), 0x46586A))
-    parts.append(stroke(oval(140, -48, 20, 20), 0x3A3D44, 2.4))
     parts.append(paint(oval(-138, -48, 24, 24), 0x15161A))
     parts += screw(-143, 8, ring: 0x3A3D44, dot: 0x15161A)
     parts += screw(143, 8, ring: 0x3A3D44, dot: 0x15161A)

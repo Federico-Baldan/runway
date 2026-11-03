@@ -522,7 +522,11 @@ enum HelmetVerify {
         }
         check("no moving part of a gesture is drawn identically by two helmets \(clash.prefix(3))", clash.isEmpty)
         let channels = own.allSatisfy { HelmetSignature.gestures(for: $0).count == HelmetState.gestureSlots }
-        check("every new helmet has all four gestures, one per channel", channels)
+        check("every new helmet has all \(HelmetState.gestureSlots) gestures, one per channel", channels)
+        // Every moving part is a view and a layer the compositor keeps, drawn or not, so the count is a cost of its own.
+        let partCounts = helmets.map { $0.helmet?.dynamics.count ?? 0 }
+        print("  moving parts per helmet: \(String(format: "%.1f", Double(partCounts.reduce(0, +)) / Double(max(partCounts.count, 1)))) on average, \(partCounts.max() ?? 0) at most")
+        check("no helmet has more than 24 moving parts", partCounts.allSatisfy { $0 <= 24 })
         let battery = own.allSatisfy { style in
             HelmetSignature.gestures(for: style).indices.filter { index in
                 let c = HelmetSignature.cost(for: style, gesture: index)
@@ -658,7 +662,7 @@ enum HelmetVerify {
             ("blink", HelmetState(lid: 1)),
             ("left", HelmetState(gazeX: -0.9)),
             ("wide", HelmetState(dilation: 1.35, led: 1)),
-            ("signature", HelmetState(led: 0.3, gestures: [1, 0, 0, 0])),
+            ("signature", HelmetState(led: 0.3, gestures: [1] + [CGFloat](repeating: 0, count: HelmetState.gestureSlots - 1))),
         ]
         for style in AvatarStyle.allCases {
             guard let spec = style.helmet else { continue }

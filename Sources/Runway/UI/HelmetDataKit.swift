@@ -13,7 +13,7 @@ import Foundation
 // (`HelmetSpec.silhouette`) instead of wearing the notch, so a firefighter's brim
 // or a samurai's crest is part of the shape and not a livery painted on a notch.
 // Everything else is the same contract: a still drawn once, parts that are only
-// moved, scaled, turned or faded, four gestures with a channel each.
+// moved, scaled, turned or faded, eight gestures with a channel each.
 
 /// A corner of an outline: x, y, and the radius it is rounded to (0 is sharp).
 typealias HV = (x: CGFloat, y: CGFloat, r: CGFloat)

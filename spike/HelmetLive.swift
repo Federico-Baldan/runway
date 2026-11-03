@@ -193,7 +193,7 @@ enum LiveDraw {
                 }
                 worstDeviation[power] = max(worstDeviation[power] ?? 0, worst)
                 let gestures = p.filter { $0.gesture != nil }.count
-                cells.append(String(format: "%d of 4 in the draw, %4.1f%% of beats, mean %.3f s", gestures, gestureShare(p) * 100, meanSeconds(p)))
+                cells.append(String(format: "%d of %d in the draw, %4.1f%% of beats, mean %.3f s", gestures, HelmetState.gestureSlots, gestureShare(p) * 100, meanSeconds(p)))
             }
             rows.append("  \(style.rawValue.padding(toLength: 10, withPad: " ", startingAt: 0)) | " + cells.joined(separator: " | "))
         }
