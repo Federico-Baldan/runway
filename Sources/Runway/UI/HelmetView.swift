@@ -79,10 +79,13 @@ struct HelmetLayer: View, Equatable {
             let scale = size.width / HelmetSpec.designWidth
             context.translateBy(x: size.width / 2, y: size.height / 2)
             context.scaleBy(x: scale, y: scale)
-            let shell = Path(HelmetSpec.shell)
             // `scale` is points per design unit: how much of the helmet is
             // worth drawing depends on how big it is on the screen.
-            for draw in spec.draws(for: layer, pointsPerUnit: scale) {
+            let draws = spec.draws(for: layer, pointsPerUnit: scale)
+            // The outline is a few dozen segments for the later helmets: build it
+            // only for a layer that clips to it.
+            let shell = draws.contains(where: \.clipToShell) ? Path(spec.silhouette) : Path()
+            for draw in draws {
                 var inner = context
                 if draw.clipToShell { inner.clip(to: shell) }
                 let path = Path(draw.path)
@@ -122,6 +125,8 @@ struct HelmetMark: View {
     var gestureMotion: Animation?
     /// Somebody is looking: the LEDs stay lit.
     var isAttentive = false
+    /// A still, for the picker: parts that are invisible at rest are not built at all.
+    var isPreview = false
 
     private var width: CGFloat { (height * BrandGeometry.aspect).rounded() }
 
@@ -145,8 +150,11 @@ struct HelmetMark: View {
         )
     }
 
-    private var insideWindow: [Int] { spec.dynamics.indices.filter { spec.dynamics[$0].insideWindow } }
-    private var outsideWindow: [Int] { spec.dynamics.indices.filter { !spec.dynamics[$0].insideWindow } }
+    private func isBuilt(_ index: Int) -> Bool {
+        !isPreview || spec.motion(of: spec.dynamics[index], in: .rest).opacity > 0.001
+    }
+    private var insideWindow: [Int] { spec.dynamics.indices.filter { spec.dynamics[$0].insideWindow && isBuilt($0) } }
+    private var outsideWindow: [Int] { spec.dynamics.indices.filter { !spec.dynamics[$0].insideWindow && isBuilt($0) } }
 
     var body: some View {
         let s = state
@@ -154,7 +162,8 @@ struct HelmetMark: View {
             still(.below)
             window(s)
             still(.rim)
-            still(.above)
+            // Several of the later helmets have no hardware in front of the window.
+            if !spec.above.isEmpty { still(.above) }
             still(.edge)
             ForEach(outsideWindow, id: \.self) { moving($0, s) }
         }
@@ -179,24 +188,30 @@ struct HelmetMark: View {
         ZStack {
             still(.glass)
             eyes(s)
-            still(.highlights)
-                .offset(x: -s.gazeX * 5 * scale, y: -s.gazeY * 3 * scale)
-            ZStack {
-                // The visor rests above the notch's top edge, so its Canvas is
-                // twice as tall as the mark and then framed back to size: a Canvas
-                // draws only inside its own frame, and a visor moved down with its
-                // top never drawn leaves the top of the window bare. The second
-                // frame keeps the layout size, so nothing else shifts.
-                still(.plate)
-                    .frame(width: width, height: height * 2)
-                    .frame(width: width, height: height)
-                if spec.plate.edgeFlash != nil {
-                    still(.plateFlash).opacity(Double(s.gesture(spec.plate.flashGesture)))
-                }
+            if !spec.highlights.isEmpty {
+                still(.highlights)
+                    .offset(x: -s.gazeX * 5 * scale, y: -s.gazeY * 3 * scale)
             }
-            .offset(y: spec.plateOffsetY(s) * scale)
-            // Inside the root's `motion`: it wins only when a gesture moved.
-            .animation(gestureMotion, value: s.gestures)
+            // A still has no use for a visor that rests above the window, or for the
+            // flash of its edge, which is at 0 until a gesture lights it.
+            if !(isPreview && spec.window.restFraction == 0) {
+                ZStack {
+                    // The visor rests above the notch's top edge, so its Canvas is
+                    // twice as tall as the mark and then framed back to size: a Canvas
+                    // draws only inside its own frame, and a visor moved down with its
+                    // top never drawn leaves the top of the window bare. The second
+                    // frame keeps the layout size, so nothing else shifts.
+                    still(.plate)
+                        .frame(width: width, height: height * 2)
+                        .frame(width: width, height: height)
+                    if spec.plate.edgeFlash != nil && !isPreview {
+                        still(.plateFlash).opacity(Double(s.gesture(spec.plate.flashGesture)))
+                    }
+                }
+                .offset(y: spec.plateOffsetY(s) * scale)
+                // Inside the root's `motion`: it wins only when a gesture moved.
+                .animation(gestureMotion, value: s.gestures)
+            }
             ForEach(insideWindow, id: \.self) { moving($0, s) }
         }
         .clipShape(HelmetOutline(segments: spec.window.path))
@@ -251,7 +266,7 @@ struct AvatarPreview: View {
 
     var body: some View {
         if let spec = style.helmet {
-            HelmetMark(style: style, spec: spec, height: height)
+            HelmetMark(style: style, spec: spec, height: height, isPreview: true)
         } else {
             ClassicEyePreview(height: height)
         }

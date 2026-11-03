@@ -483,7 +483,7 @@ when all the mark knew how to do was blink. Off in Settings → Where to show
 the island.
 
 **Faces** — the mark does not have to be an eye. Settings → Face offers the
-original eye and five helmets: Apollo (graphite, a gold visor that is also the
+original eye and 27 helmets, the first five being: Apollo (graphite, a gold visor that is also the
 eyelid), Orlan (round window, silver visor, a lamp and a camera), Stealth (nearly
 black, a blue visor), Papaya (a black and papaya racing helmet with a number
 seven) and Endurance (hi-vis chevrons). A face only changes how the same four
@@ -505,6 +505,29 @@ flashes its papaya edge; the number shines; the eyes shiver like an engine; it
 winks. Endurance: a pit-lane strobe; the sun strip dips; a light runs along the
 chevrons; the lights of a car behind fill the visor and the eyes look away.
 
+After those five come 22 more, each a real object with a silhouette of its own and
+not the notch's: a fire helmet with a red front shield, a brass diving helmet, a samurai
+kabuto, a great helm, an American football helmet, a motocross helmet, a Formula 1
+helmet behind its halo, a leather flying helmet with goggles, a pilot's helmet with
+an oxygen mask, a miner's hard hat with a lamp, an auto-darkening welding helmet, a
+Corinthian helm, a kendo men, a murmillo's helmet, a hounskull bascinet, the
+Gjermundbu helmet, a ski helmet, a forestry helmet with ear defenders and a mesh
+visor, a British custodian helmet, a fencing mask, a helicopter crew helmet and a
+jockey's cap in its silks. Each has four gestures drawn from a part of the real thing —
+the halo's arch lights, the miner's lamp flares, the welder's sensors flash and the
+lens goes dark, the diver's spit cock turns, the great helm's visor slams. They are
+described as plain data like the first five (`HelmetData*.swift`, registered in
+`HelmetCollection`), so the spike checks and draws them without a screen. Settings →
+Face lists them by family in a scrolling grid: a preview is built only when it scrolls
+into view and is a still picture with no animator, so the ones not yet reached cost nothing.
+
+Every gesture is in the same weighted random draw as every other beat (weight 4
+each, no order, no timer of its own), so which one comes out is chance: each is
+about 3% of the draws on wall power, 11% for a helmet's four. All of them are frugal,
+so on battery all four stay in the draw, and in Low Power Mode none does.
+`make spikes-offline` models that draw per power source and reads the real table
+out of `IdleMark.swift`, so it fails if the weights or the rules move.
+
 A helmet has far more in it than the eye, so it is drawn bigger in the notch —
 19 points tall, where the eye is 16, in a band under the cutout that stays as tall
 as it ever was, since it is drawn over the title bar and the tabs behind it — and
@@ -524,8 +547,8 @@ a beat like any other and wakes the app only for its own few steps. Each gesture
 counted like every other beat (at most six moves and half a second of animation)
 and so is on the battery menu, and absent in Low Power Mode, which keeps only
 lid movement. Worked out from the beat weights and costs, adding the gestures
-changes the mean animated seconds per beat by between −3.6% and −5.6% on wall
-power and between −2.9% and +1.1% on battery, depending on the helmet.
+changes the mean animated seconds per beat by between −6.4% and −3.6% on wall
+power and between −4.5% and +1.1% on battery, depending on the helmet.
 `make spikes-offline` checks the helmets without a screen: outlines, how the eyes
 move, and that every gesture is that cheap, drives a channel of its own, and
 always puts everything back.

@@ -235,6 +235,11 @@ enum HelmetSignature {
                     SignatureStep(duration: 0.26, curve: .easeOut, channel: 3, level: 0, gaze: .zero, looksAway: true),
                 ],
             ]
+
+        // The helmets after the first five keep their gestures next to their
+        // drawings, in `HelmetCollection`.
+        default:
+            return HelmetCollection.entries[style]?.gestures ?? []
         }
     }
 

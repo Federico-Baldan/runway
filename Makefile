@@ -118,14 +118,14 @@ spikes-offline:
 	@echo "── dismissal ──" && $(MAKE) -s spike-run SPIKE=DismissVerify      SRC="Sources/Runway/Core/DismissedRuns.swift Sources/Runway/Core/RunMonitor.swift Sources/Runway/Core/TerraformPlanParser.swift $(API)/GitHubClient.swift $(API)/Models.swift $(API)/TerraformPlan.swift $(API)/Approvals.swift $(API)/DeployTarget.swift $(API)/RunScope.swift $(API)/ETagStore.swift Sources/Runway/Auth/Keychain.swift"
 	@echo "── centering ──" && $(MAKE) -s spike-run SPIKE=CenteringVerify      SRC="Sources/Runway/UI/NotchMath.swift"
 	@echo "── notch ──"     && $(MAKE) -s spike-run SPIKE=NotchPlacementVerify SRC="Sources/Runway/UI/NotchMath.swift"
-	@echo "── helmets ──"   && $(MAKE) -s spike-run SPIKE=HelmetVerify SRC="Sources/Runway/UI/AvatarStyle.swift Sources/Runway/UI/HelmetGeometry.swift Sources/Runway/UI/HelmetSpec.swift Sources/Runway/UI/HelmetSignature.swift"
+	@echo "── helmets ──"   && $(MAKE) -s spike-run SPIKE=HelmetVerify SWIFTFLAGS="-swift-version 6" SRC="Sources/Runway/UI/AvatarStyle.swift Sources/Runway/UI/HelmetGeometry.swift Sources/Runway/UI/HelmetSpec.swift Sources/Runway/UI/HelmetSignature.swift Sources/Runway/UI/HelmetData*.swift spike/HelmetLive.swift spike/HelmetFrames.swift"
 	@echo "── sso ──"       && $(MAKE) -s spike-run SPIKE=SSOVerify           SRC="$(API)/GitHubClient.swift $(API)/Models.swift $(API)/TerraformPlan.swift $(API)/Approvals.swift $(API)/DeployTarget.swift $(API)/RunScope.swift $(API)/ETagStore.swift Sources/Runway/Auth/Keychain.swift"
 	@echo "── 304 ──"      && $(MAKE) -s spike-run SPIKE=ConditionalVerify SRC="$(API)/GitHubClient.swift $(API)/Models.swift $(API)/TerraformPlan.swift $(API)/Approvals.swift $(API)/DeployTarget.swift $(API)/RunScope.swift $(API)/ETagStore.swift Sources/Runway/Auth/Keychain.swift"
 	@echo "── dates ──"    && $(MAKE) -s spike-run SPIKE=DateVerify        SRC="$(API)/GitHubClient.swift $(API)/Models.swift $(API)/TerraformPlan.swift $(API)/Approvals.swift $(API)/DeployTarget.swift $(API)/RunScope.swift $(API)/ETagStore.swift Sources/Runway/Auth/Keychain.swift"
 
 # Compile one spike against the real sources, then run it.
 spike-run: $(SPIKEOUT)
-	@swiftc -o "$(SPIKEOUT)/$(SPIKE)" "spike/$(SPIKE).swift" $(SRC)
+	@swiftc $(SWIFTFLAGS) -o "$(SPIKEOUT)/$(SPIKE)" "spike/$(SPIKE).swift" $(SRC)
 	@"$(SPIKEOUT)/$(SPIKE)" $(ARGS)
 
 # Create a stable local signing identity so the keychain stops re-prompting on

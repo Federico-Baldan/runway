@@ -92,6 +92,12 @@ struct HelmetSpec: Sendable {
     var visorNudge: CGFloat = 0
     /// The gesture that moves the visor, when one does.
     var visorGesture = 0
+    /// The outline the helmet is cut to, and which the edge light follows. The
+    /// first five wear the notch itself; the helmets after them (see
+    /// `HelmetCollection`) own theirs, so a brim or a crest is part of the shape.
+    /// It must fit the 312 x 224 box and be one simple closed outline, because
+    /// the hard shadow is this outline XOR a shape (even-odd).
+    var silhouette: HPath = HelmetSpec.shell
 }
 
 // MARK: - State to geometry
@@ -199,7 +205,7 @@ extension HelmetSpec {
         case .plateFlash: return edgeFlashDraw.map { [$0] } ?? []
         case .rim: return [.line(window.path, window.rim, window.rimWidth)]
         case .above: return above
-        case .edge: return [.line(HelmetSpec.shell, edge, 0, clip: true)]
+        case .edge: return [.line(silhouette, edge, 0, clip: true)]
         case .dynamic(let index): return dynamics.indices.contains(index) ? dynamics[index].draws : []
         }
     }
@@ -237,7 +243,7 @@ extension HelmetSpec {
         case .edge:
             // Centred on the outline and clipped to it, so only the inner half
             // shows: twice the width that is wanted.
-            return [.line(HelmetSpec.shell, edge, 2 * HelmetSpec.edgeLightWidth / s, clip: true)]
+            return [.line(silhouette, edge, 2 * HelmetSpec.edgeLightWidth / s, clip: true)]
         case .below, .above, .highlights:
             return draws(for: layer).compactMap { HelmetSpec.legible($0, pointsPerUnit: s) }
         default:
@@ -279,6 +285,10 @@ extension AvatarStyle {
         case .stealth: return .stealth
         case .papaya: return .papaya
         case .endurance: return .endurance
+        // Every later helmet is registered in `HelmetCollection`, which is also
+        // where its gestures are. A style missing from it has no helmet, and the
+        // spike fails it by name.
+        default: return HelmetCollection.entries[self]?.spec
         }
     }
 }

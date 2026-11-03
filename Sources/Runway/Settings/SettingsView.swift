@@ -744,15 +744,8 @@ struct SettingsView: View {
                 Text("Face")
                     .font(.system(size: 12))
                     .foregroundStyle(preferences.idleMark ? .primary : .tertiary)
-                LazyVGrid(
-                    columns: Array(repeating: GridItem(.fixed(72), spacing: 8), count: 3),
-                    alignment: .leading, spacing: 8
-                ) {
-                    ForEach(AvatarStyle.allCases, id: \.self) { style in
-                        avatarTile(style)
-                    }
-                }
-                .opacity(preferences.idleMark ? 1 : 0.4)
+                facePicker
+                    .opacity(preferences.idleMark ? 1 : 0.4)
             }
             .padding(.leading, 38)
             .disabled(!preferences.idleMark)
@@ -1030,6 +1023,48 @@ struct SettingsView: View {
     /// the swatches step aside for one.
     private var eyeOptionsOn: Bool {
         preferences.idleMark && !preferences.idleMarkStyle.isHelmet
+    }
+
+    /// Every face, on a shelf by family, in a scroll view of its own so the list
+    /// can grow without making the window taller.
+    ///
+    /// Lazy twice over: the shelves are in a `LazyVStack` and each shelf's tiles in
+    /// a `LazyVGrid`, so a preview is built only when it scrolls into view (and a
+    /// stack may keep what it has built, which is a few dozen small stills at most).
+    /// A tile is a still: it has no animator, no timer and no animation, so the ones
+    /// that are off screen cost nothing and the ones on screen cost one draw. The
+    /// scroll view opens on the shelf of the face that is on, which may be far down
+    /// the list: it asks to scroll to the shelf, a coarser target than a tile, and
+    /// whether a lazy stack honours that before its first layout has not been seen
+    /// on a Mac; if it does not, the list opens at the top. The original eye is on
+    /// the first shelf.
+    private var facePicker: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    ForEach(AvatarFamily.allCases.filter { !$0.styles.isEmpty }, id: \.self) { family in
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(family.title)
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(.tertiary)
+                                .accessibilityAddTraits(.isHeader)
+                            LazyVGrid(
+                                columns: [GridItem(.adaptive(minimum: 72, maximum: 72), spacing: 8)],
+                                alignment: .leading, spacing: 8
+                            ) {
+                                ForEach(family.styles, id: \.self) { style in
+                                    avatarTile(style)
+                                }
+                            }
+                        }
+                        .id(family)
+                    }
+                }
+                .padding(.trailing, 10)
+            }
+            .frame(height: 262)
+            .onAppear { proxy.scrollTo(preferences.idleMarkStyle.family, anchor: .top) }
+        }
     }
 
     /// One face, drawn the way macOS draws a choice: the thing itself on the

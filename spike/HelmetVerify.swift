@@ -5,12 +5,15 @@
 // Foundation-only files, so it can be checked without a screen, and drawn to SVG
 // to be looked at. `HelmetView` is only the interpreter of this data.
 //
-//   swiftc -o /tmp/helmet spike/HelmetVerify.swift \
+//   swiftc -swift-version 6 -o /tmp/helmet spike/HelmetVerify.swift \
 //       Sources/Runway/UI/AvatarStyle.swift Sources/Runway/UI/HelmetGeometry.swift \
 //       Sources/Runway/UI/HelmetSpec.swift Sources/Runway/UI/HelmetSignature.swift \
+//       Sources/Runway/UI/HelmetData*.swift \
 //       && /tmp/helmet
 //
-// Add `svg <directory>` to also write each helmet in five poses as SVG.
+// Add `svg <directory> [height in points]` to also write each helmet in five poses
+// as SVG, and `frames <directory> [frames per gesture]` to write every gesture of
+// every helmet as a strip of SVG frames, drawn the way SwiftUI would animate it.
 
 // CGRect, CGPoint and CGSize come with their members only from CoreGraphics on
 // macOS, which has no such module on Linux, where Foundation has them all.
@@ -41,10 +44,17 @@ enum HelmetVerify {
         check("the original eye is not a helmet and has no spec", AvatarStyle.classic.helmet == nil)
         check("every helmet has a spec", helmets.allSatisfy { $0.helmet != nil })
         check("a fresh install gets a helmet", AvatarStyle.default.isHelmet)
-        check("five helmets", helmets.count == 5)
+        check("the five originals are there, and every other helmet has an entry in the collection",
+              helmets.count == 5 + HelmetCollection.entries.count
+                  && helmets.dropFirst(5).allSatisfy { HelmetCollection.entries[$0] != nil })
+        check("no entry in the collection is for a style that does not exist (or is the eye)",
+              HelmetCollection.entries.keys.allSatisfy { $0.isHelmet })
         check("every style has a name and a tooltip", AvatarStyle.allCases.allSatisfy { !$0.title.isEmpty && !$0.summary.isEmpty })
         check("raw values are stable (they are stored in UserDefaults)",
-              AvatarStyle.allCases.map(\.rawValue) == ["classic", "apollo", "orlan", "stealth", "papaya", "endurance"])
+              AvatarStyle.allCases.map(\.rawValue) == expectedRawValues)
+        check("every style is on a shelf of the picker, and every shelf of the picker has a style",
+              AvatarStyle.allCases.allSatisfy { $0.family.styles.contains($0) }
+                  && AvatarFamily.allCases.reduce(0) { $0 + $1.styles.count } == AvatarStyle.allCases.count)
 
         print()
         print("── path builders ──")
@@ -65,7 +75,24 @@ enum HelmetVerify {
             print("── \(style.title) ──")
 
             let window = bounds(spec.window.path)
-            check("the window sits inside the shell", shell.isEmpty == false && bounds(shell).contains(window))
+            let hull = bounds(spec.silhouette)
+            check("the silhouette fits the 312 x 224 box", HelmetVerify.box.contains(hull) && hull.width >= 150 && hull.height >= 150)
+            check("the window sits inside the silhouette", !spec.silhouette.isEmpty && hull.contains(window))
+            check("the silhouette is one closed outline of at least three corners",
+                  spec.silhouette.filter { if case .move = $0 { return true } else { return false } }.count == 1
+                      && spec.silhouette.last == .close && pointsOf(spec.silhouette).count >= 6)
+            check("the middle of the window is inside the silhouette",
+                  inside(spec.silhouette, CGPoint(x: window.midX, y: window.midY)))
+            if style.isHelmet, HelmetCollection.entries[style] != nil {
+                let own = overlap(mass(spec), raster(shell))
+                check("it is not the notch: its shape is its own (\(String(format: "%.2f", own)) of the notch)", own <= 0.9)
+                let cells = raster(spec.window.path).filter { $0 }.count
+                check("the window is at least 60 cells of the 44 x 32 grid the mark is drawn on (\(cells))", cells >= 60)
+                check("the LEDs are at least 3:1 against the glass, so the eyes read",
+                      (luminanceOf(spec.eyes.dim) + 0.05) / (luminanceOf(spec.window.glass) + 0.05) >= 3)
+                check("the edge light is a different colour from every other helmet's",
+                      helmets.filter { $0 != style }.allSatisfy { other in other.helmet.map { $0.edge.hex != spec.edge.hex } ?? true })
+            }
             check("the visor is wider than the window it covers", spec.plateWidth >= window.width)
             check("the visor's travel matches the window", abs(spec.window.top - window.minY) <= 12 && abs(spec.window.bottom - window.maxY) <= 12)
 
@@ -112,6 +139,28 @@ enum HelmetVerify {
                 }
             }
             check("the LEDs never leave the window, at any gaze or dilation", inside)
+            // The box above is the window's bounding box. For a window that is not a rectangle (a cross, a T, two
+            // lenses) the eyes must stay in its real shape, at the range the animator and the gestures use: gaze to
+            // either side and up or down by up to 0.8, dilation from squint to the widest `widen` makes.
+            var shaped = true
+            for gx: CGFloat in stride(from: -1, through: 1, by: 0.25).map({ CGFloat($0) }) {
+                for gy: CGFloat in stride(from: -0.8, through: 0.8, by: 0.2).map({ CGFloat($0) }) {
+                    for dilation: CGFloat in [0.6, 0.8, 1, 1.2] {
+                        var s = HelmetState.rest
+                        s.gazeX = gx; s.gazeY = gy; s.dilation = dilation
+                        for rect in spec.eyeRects(s) {
+                            let r = spec.eyeCornerRadius(for: rect) * 0.29
+                            let points = [CGPoint(x: rect.minX + r, y: rect.minY + r), CGPoint(x: rect.maxX - r, y: rect.minY + r),
+                                          CGPoint(x: rect.minX + r, y: rect.maxY - r), CGPoint(x: rect.maxX - r, y: rect.maxY - r),
+                                          CGPoint(x: rect.midX, y: rect.midY)]
+                            if !points.allSatisfy({ HelmetVerify.inside(spec.window.path, $0) }) { shaped = false }
+                        }
+                    }
+                }
+            }
+            check("the LEDs stay inside the window's real shape at the animator's range of gaze and dilation", shaped)
+            check("neither the silhouette nor the window crosses itself (the shadow is an even-odd fill of the outline)",
+                  selfCrossings(spec.silhouette) == 0 && selfCrossings(spec.window.path) == 0)
             let centred = spec.eyeRects(.rest)
             check("two eyes, mirrored about the centre", centred.count == 2 && abs(centred[0].midX + centred[1].midX) < 0.001)
             var wide = HelmetState.rest
@@ -161,12 +210,8 @@ enum HelmetVerify {
             check("the edge light is one stroke, clipped to the shell, at least a device pixel wide inside it",
                   edge.count == 1 && edge[0].clipToShell && edge[0].strokeWidth * notchPPU / 2 >= pixel)
             // Relative luminance of the light over the notch's black, which is what it sits against.
-            func luminance(_ c: HColor) -> Double {
-                func lin(_ v: Double) -> Double { v <= 0.03928 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
-                return 0.2126 * lin(c.red * c.alpha) + 0.7152 * lin(c.green * c.alpha) + 0.0722 * lin(c.blue * c.alpha)
-            }
-            let ratio = (luminance(spec.edge) + 0.05) / 0.05
-            print("  \(style.rawValue): edge light is \(String(format: "%.1f", ratio)):1 against black, shell \(String(format: "%.2f", (luminance(HColor(0x2B2D32)) + 0.05) / 0.05)):1 for comparison")
+            let ratio = (luminanceOf(spec.edge) + 0.05) / 0.05
+            print("  \(style.rawValue): edge light is \(String(format: "%.1f", ratio)):1 against black, shell \(String(format: "%.2f", (luminanceOf(HColor(spec.below.first?.fill?.hex ?? 0x2B2D32)) + 0.05) / 0.05)):1 for comparison")
             check("the edge light is at least 3:1 against the black of the notch (WCAG 1.4.11)", ratio >= 3)
 
             // The gestures.
@@ -270,6 +315,9 @@ enum HelmetVerify {
         check("a helmet fits in the 32 point hover row with room above and below",
               AvatarStyle.allCases.allSatisfy { $0.hoverHeight <= 24 })
 
+        collectionChecks(helmets)
+        LiveDraw.run(helmets)
+
         // The original eye has no gesture and costs nothing extra.
         print()
         print("── the original eye ──")
@@ -277,6 +325,11 @@ enum HelmetVerify {
         check("so no cost", HelmetSignature.cost(for: .classic, gesture: 0) == (0, 0))
 
         let arguments = CommandLine.arguments
+        if arguments.count >= 3, arguments[1] == "frames" {
+            print()
+            print("── frames ──")
+            writeFrames(into: arguments[2], count: arguments.count >= 4 ? Int(arguments[3]) ?? 9 : 9)
+        }
         if arguments.count >= 3, arguments[1] == "svg" {
             print()
             print("── svg ──")
@@ -286,11 +339,197 @@ enum HelmetVerify {
 
         print()
         if failures == 0 {
-            print("RESULT: PASS — five helmets, each with a gesture that is cheap and puts everything back")
+            print("RESULT: PASS — \(helmets.count) helmets, each with gestures that are cheap, put everything back, and come out of the same random draw as every other beat")
         } else {
             print("RESULT: FAIL — \(failures) case(s) wrong")
             exit(1)
         }
+    }
+
+    // MARK: - what the collection has to be
+
+    static let box = CGRect(x: -156, y: -112, width: 312, height: 224)
+
+    /// Stored in UserDefaults, so these never change; a new face is added at the end.
+    static let expectedRawValues = [
+        "classic", "apollo", "orlan", "stealth", "papaya", "endurance",
+        "fire", "diver", "kabuto", "greathelm",
+        "gridiron", "moto", "halo", "aviator",
+        "fighter", "miner", "welder", "corinthian",
+        "kendo", "murmillo", "bascinet", "gjermundbu",
+        "ski", "forestry", "custodian", "fencing",
+        "heli", "jockey",
+    ]
+
+    static func luminanceOf(_ c: HColor) -> Double {
+        func lin(_ v: Double) -> Double { v <= 0.03928 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+        return 0.2126 * lin(c.red * c.alpha) + 0.7152 * lin(c.green * c.alpha) + 0.0722 * lin(c.blue * c.alpha)
+    }
+
+    /// An outline as straight segments, curves cut into 12.
+    static func flatten(_ path: HPath) -> [[CGPoint]] {
+        var polygons: [[CGPoint]] = []
+        var current: [CGPoint] = []
+        var last = CGPoint.zero
+        for seg in path {
+            switch seg {
+            case .move(let p):
+                if current.count > 2 { polygons.append(current) }
+                current = [p]; last = p
+            case .line(let p):
+                current.append(p); last = p
+            case .curve(let to, let c1, let c2):
+                for i in 1...12 {
+                    let t = CGFloat(i) / 12, u = 1 - t
+                    let x = u * u * u * last.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * to.x
+                    let y = u * u * u * last.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * to.y
+                    current.append(CGPoint(x: x, y: y))
+                }
+                last = to
+            case .close:
+                break
+            }
+        }
+        if current.count > 2 { polygons.append(current) }
+        return polygons
+    }
+
+    /// How many times an outline crosses itself: edges that are not neighbours and that cut each other.
+    static func selfCrossings(_ path: HPath) -> Int {
+        func side(_ a: CGPoint, _ b: CGPoint, _ c: CGPoint) -> CGFloat { (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x) }
+        var crossings = 0
+        for polygon in flatten(path) {
+            let count = polygon.count
+            for i in 0..<count {
+                guard i + 2 < count else { continue }
+                let a = polygon[i], b = polygon[(i + 1) % count]
+                for j in (i + 2)..<count where !(i == 0 && j == count - 1) {
+                    let c = polygon[j], d = polygon[(j + 1) % count]
+                    if side(a, b, c) * side(a, b, d) < 0 && side(c, d, a) * side(c, d, b) < 0 { crossings += 1 }
+                }
+            }
+        }
+        return crossings
+    }
+
+    /// Non-zero winding, which is how the notch is clipped.
+    static func inside(_ path: HPath, _ p: CGPoint) -> Bool {
+        var winding = 0
+        for polygon in flatten(path) {
+            for i in 0..<polygon.count {
+                let a = polygon[i], b = polygon[(i + 1) % polygon.count]
+                if a.y <= p.y {
+                    if b.y > p.y && (b.x - a.x) * (p.y - a.y) - (p.x - a.x) * (b.y - a.y) > 0 { winding += 1 }
+                } else if b.y <= p.y && (b.x - a.x) * (p.y - a.y) - (p.x - a.x) * (b.y - a.y) < 0 {
+                    winding -= 1
+                }
+            }
+        }
+        return winding != 0
+    }
+
+    /// The outline on the 44 x 32 grid the mark is drawn on at 22 x 16 points and
+    /// 2x: one bool per pixel, sampled at its centre.
+    static func raster(_ path: HPath, columns: Int = 44, rows: Int = 32) -> [Bool] {
+        var cells: [Bool] = []
+        for row in 0..<rows {
+            for column in 0..<columns {
+                let x = -156 + (CGFloat(column) + 0.5) * 312 / CGFloat(columns)
+                let y = -112 + (CGFloat(row) + 0.5) * 224 / CGFloat(rows)
+                cells.append(inside(path, CGPoint(x: x, y: y)))
+            }
+        }
+        return cells
+    }
+
+    /// What the eye sees of a helmet at rest on that grid: the silhouette, and whatever stands
+    /// outside it or in front of it that is drawn at rest (the halo's arch, a peak, ear flaps, a
+    /// facemask), strokes at their width. Two helmets with the same dome and different things
+    /// on it are different shapes, and the silhouette alone would call them the same.
+    static func mass(_ spec: HelmetSpec, columns: Int = 44, rows: Int = 32) -> [Bool] {
+        var cells = raster(spec.silhouette, columns: columns, rows: rows)
+        var draws = spec.above
+        for (index, part) in spec.dynamics.enumerated() where spec.motion(of: part, in: .rest).opacity > 0.5 {
+            draws += spec.draws(for: .dynamic(index))
+        }
+        for draw in draws {
+            let polygons = flatten(draw.path)
+            for row in 0..<rows {
+                for column in 0..<columns where !cells[row * columns + column] {
+                    let p = CGPoint(x: -156 + (CGFloat(column) + 0.5) * 312 / CGFloat(columns), y: -112 + (CGFloat(row) + 0.5) * 224 / CGFloat(rows))
+                    var hit = false
+                    if draw.fill != nil, inside(draw.path, p) { hit = true }
+                    if !hit, draw.stroke != nil {
+                        let reach = max(draw.strokeWidth, 6) / 2
+                        outer: for polygon in polygons {
+                            for i in 0..<polygon.count {
+                                let a = polygon[i], b = polygon[(i + 1) % polygon.count]
+                                let dx = b.x - a.x, dy = b.y - a.y
+                                let length2 = dx * dx + dy * dy
+                                let t = length2 == 0 ? 0 : max(0, min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / length2))
+                                let ex = a.x + t * dx - p.x, ey = a.y + t * dy - p.y
+                                if ex * ex + ey * ey <= reach * reach { hit = true; break outer }
+                            }
+                        }
+                    }
+                    if hit { cells[row * columns + column] = true }
+                }
+            }
+        }
+        return cells
+    }
+
+    /// Intersection over union of two grids.
+    static func overlap(_ x: [Bool], _ y: [Bool]) -> Double {
+        var both = 0, either = 0
+        for i in x.indices {
+            if x[i] && y[i] { both += 1 }
+            if x[i] || y[i] { either += 1 }
+        }
+        return either == 0 ? 1 : Double(both) / Double(either)
+    }
+
+    static func overlap(_ a: HPath, _ b: HPath) -> Double { overlap(raster(a), raster(b)) }
+
+    /// What has to hold of the collection as a whole, and not of one helmet.
+    static func collectionChecks(_ helmets: [AvatarStyle]) {
+        print()
+        print("── the collection ──")
+        let own = helmets.filter { HelmetCollection.entries[$0] != nil }
+        var worst: (Double, String) = (0, "")
+        var pairs = 0
+        let masses = own.map { $0.helmet.map { mass($0) } ?? [] }
+        for i in own.indices {
+            for j in own.indices where j > i {
+                let o = overlap(masses[i], masses[j])
+                pairs += 1
+                if o > worst.0 { worst = (o, "\(own[i].rawValue) / \(own[j].rawValue)") }
+            }
+        }
+        print("  most alike shapes (silhouette plus what stands out of it) at 44 x 32: \(worst.1), \(String(format: "%.2f", worst.0)) overlap (\(pairs) pairs)")
+        check("no two of the new helmets share a silhouette: every pair overlaps by at most 0.90 on the 44 x 32 grid", worst.0 <= 0.90)
+
+        // A gesture is unique to its helmet when no moving part of it is drawn by another.
+        var seen: [String: AvatarStyle] = [:]
+        var clash: [String] = []
+        for style in helmets {
+            guard let spec = style.helmet else { continue }
+            for part in spec.dynamics where part.channel != .led {
+                let key = part.draws.map { "\(d($0.path))|\($0.fill?.hex ?? 0)|\($0.stroke?.hex ?? 0)" }.joined(separator: ";")
+                if let other = seen[key], other != style { clash.append("\(style.rawValue)=\(other.rawValue)") }
+                seen[key] = style
+            }
+        }
+        check("no moving part of a gesture is drawn identically by two helmets \(clash.prefix(3))", clash.isEmpty)
+        let channels = own.allSatisfy { HelmetSignature.gestures(for: $0).count == HelmetState.gestureSlots }
+        check("every new helmet has all four gestures, one per channel", channels)
+        let battery = own.allSatisfy { style in
+            HelmetSignature.gestures(for: style).indices.filter { index in
+                let c = HelmetSignature.cost(for: style, gesture: index)
+                return c.seconds <= 0.5 && c.moves <= 6
+            }.count >= 2
+        }
+        check("at least two gestures of every new helmet are frugal, so they are in the draw on battery", battery)
     }
 
     // MARK: - geometry helpers
@@ -366,43 +605,48 @@ enum HelmetVerify {
     /// `height` is how tall the helmet is drawn, in points, which decides what the
     /// legibility rules leave in (see `HelmetSpec.draws(for:pointsPerUnit:)`).
     static func render(_ spec: HelmetSpec, _ s: HelmetState, height: CGFloat = HelmetSpec.designHeight) -> String {
+        render(spec, HelmetPose(spec, s), height: height)
+    }
+
+    /// A helmet at one instant, from what each part is doing at it. The state-to-pose
+    /// step is `HelmetPose`, so a frame half way through a move can be drawn too.
+    static func render(_ spec: HelmetSpec, _ pose: HelmetPose, height: CGFloat = HelmetSpec.designHeight) -> String {
         let ppu = height / HelmetSpec.designHeight
         var out: [String] = []
         out.append("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"-156 -112 312 224\" width=\"624\" height=\"448\">")
-        out.append("<defs><clipPath id=\"shell\"><path d=\"\(d(HelmetSpec.shell))\"/></clipPath><clipPath id=\"window\"><path d=\"\(d(spec.window.path))\"/></clipPath></defs>")
+        out.append("<defs><clipPath id=\"shell\"><path d=\"\(d(spec.silhouette))\"/></clipPath><clipPath id=\"window\"><path d=\"\(d(spec.window.path))\"/></clipPath></defs>")
         out.append("<rect x=\"-156\" y=\"-112\" width=\"312\" height=\"224\" fill=\"#000\"/>")
         out.append(svg(spec.draws(for: .below, pointsPerUnit: ppu)))
         out.append("<g clip-path=\"url(#window)\">")
         out.append(svg(spec.draws(for: .glass)))
-        for rect in spec.eyeRects(s) {
+        for rect in pose.eyes {
             let r = spec.eyeCornerRadius(for: rect)
             out.append("<rect x=\"\(rect.minX)\" y=\"\(rect.minY)\" width=\"\(rect.width)\" height=\"\(rect.height)\" rx=\"\(r)\" fill=\"\(hex(spec.eyes.dim))\"/>")
-            out.append("<rect x=\"\(rect.minX)\" y=\"\(rect.minY)\" width=\"\(rect.width)\" height=\"\(rect.height)\" rx=\"\(r)\" fill=\"\(hex(spec.eyes.bright))\" fill-opacity=\"\(s.led)\"/>")
+            out.append("<rect x=\"\(rect.minX)\" y=\"\(rect.minY)\" width=\"\(rect.width)\" height=\"\(rect.height)\" rx=\"\(r)\" fill=\"\(hex(spec.eyes.bright))\" fill-opacity=\"\(pose.led)\"/>")
         }
-        out.append("<g transform=\"translate(\(-s.gazeX * 5) \(-s.gazeY * 3))\">\(svg(spec.draws(for: .highlights, pointsPerUnit: ppu)))</g>")
-        out.append("<g transform=\"translate(0 \(spec.plateOffsetY(s)))\">\(svg(spec.draws(for: .plate)))")
+        out.append("<g transform=\"translate(\(-pose.gazeX * 5) \(-pose.gazeY * 3))\">\(svg(spec.draws(for: .highlights, pointsPerUnit: ppu)))</g>")
+        out.append("<g transform=\"translate(0 \(pose.plateY))\">\(svg(spec.draws(for: .plate)))")
         if let flash = spec.edgeFlashDraw {
             var faded = flash
-            faded.fill = faded.fill.map { HColor($0.hex, $0.alpha * Double(s.gesture(spec.plate.flashGesture))) }
+            faded.fill = faded.fill.map { HColor($0.hex, $0.alpha * Double(pose.flash)) }
             out.append(svg(faded))
         }
         out.append("</g>")
         for (index, part) in spec.dynamics.enumerated() where part.insideWindow {
-            out.append(dynamic(spec, part, index, s))
+            out.append(dynamic(spec, part, index, pose.parts[index]))
         }
         out.append("</g>")
         out.append(svg(spec.draws(for: .rim)))
         out.append(svg(spec.draws(for: .above, pointsPerUnit: ppu)))
         out.append(svg(spec.draws(for: .edge, pointsPerUnit: ppu)))
         for (index, part) in spec.dynamics.enumerated() where !part.insideWindow {
-            out.append(dynamic(spec, part, index, s))
+            out.append(dynamic(spec, part, index, pose.parts[index]))
         }
         out.append("</svg>")
         return out.joined(separator: "\n")
     }
 
-    static func dynamic(_ spec: HelmetSpec, _ part: HDynamic, _ index: Int, _ s: HelmetState) -> String {
-        let m = spec.motion(of: part, in: s)
+    static func dynamic(_ spec: HelmetSpec, _ part: HDynamic, _ index: Int, _ m: HelmetPose.Part) -> String {
         let transform = "translate(\(m.dx) \(m.dy)) translate(\(part.pivot.x) \(part.pivot.y)) rotate(\(m.rotation)) scale(\(m.scale)) translate(\(-part.pivot.x) \(-part.pivot.y))"
         return "<g opacity=\"\(m.opacity)\" transform=\"\(transform)\">\(svg(spec.draws(for: .dynamic(index))))</g>"
     }
@@ -414,7 +658,7 @@ enum HelmetVerify {
             ("blink", HelmetState(lid: 1)),
             ("left", HelmetState(gazeX: -0.9)),
             ("wide", HelmetState(dilation: 1.35, led: 1)),
-            ("signature", HelmetState(led: 0.3, gestures: [1, 0, 0])),
+            ("signature", HelmetState(led: 0.3, gestures: [1, 0, 0, 0])),
         ]
         for style in AvatarStyle.allCases {
             guard let spec = style.helmet else { continue }
